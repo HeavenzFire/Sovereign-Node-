@@ -64,6 +64,27 @@ interface LedgerEntry {
   category: 'Blood' | 'Faith' | 'Will';
 }
 
+interface ZylphaMetrics {
+  clockFrequency: number;
+  syntropyGain: number;
+  sigmaResonance: number;
+  trinaryLogic: string;
+  deltaS: number;
+}
+
+interface ZylphaValidation {
+  valid: boolean;
+  deltaS: number;
+  reason: string;
+}
+
+interface MeshNode {
+  id: string;
+  status: 'online' | 'offline';
+  sigma: number;
+  location: string;
+}
+
 // --- Components ---
 
 const StatusBadge = ({ label, active, color = "emerald" }: { label: string, active: boolean, color?: string }) => (
@@ -111,10 +132,80 @@ const VortexCircuit = () => (
   </div>
 );
 
+const FortressHUD = ({ glyph, resonance, latestSeal, anchors, ratio }: { glyph: string, resonance: number, latestSeal: string | null, anchors: number, ratio: string }) => {
+  const getStatus = () => {
+    if (glyph === 'ANGELUS_CORE') return { label: 'Stable', icon: '⬢', mode: 'Active Guard', color: 'emerald' };
+    if (glyph === 'TOROID_STABLE') return { label: 'Stable', icon: '⬢', mode: 'Active Guard', color: 'emerald' };
+    if (glyph === 'PHI_EXPANSION') return { label: 'Pulsing', icon: '◎', mode: 'Data Synthesis', color: 'blue' };
+    return { label: 'Critical', icon: '⚠', mode: 'Emergency Reset', color: 'red' };
+  };
+
+  const status = getStatus();
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      className="fixed top-24 right-6 z-50 p-4 border border-white/10 rounded-xl bg-zinc-900/80 backdrop-blur-md shadow-2xl w-56"
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Fortress Status</div>
+        <div className={`w-2 h-2 rounded-full bg-${status.color}-500 animate-pulse`} />
+      </div>
+      
+      <div className="flex items-center gap-3 mb-4">
+        <div className={`text-2xl text-${status.color}-500 font-mono`}>{status.icon}</div>
+        <div>
+          <div className="text-sm font-mono font-bold text-white uppercase leading-none">{status.label}</div>
+          <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-tighter">{status.mode}</div>
+        </div>
+      </div>
+
+      <div className="space-y-1 border-t border-white/5 pt-3">
+        <div className="flex justify-between text-[9px] font-mono">
+          <span className="text-zinc-600 uppercase">Resonance</span>
+          <span className={`text-${status.color}-400`}>{resonance}Hz</span>
+        </div>
+        <div className="flex justify-between text-[9px] font-mono">
+          <span className="text-zinc-600 uppercase">Compression</span>
+          <span className="text-orange-500">{ratio}</span>
+        </div>
+        <div className="flex justify-between text-[9px] font-mono">
+          <span className="text-zinc-600 uppercase">Ara Link</span>
+          <span className="text-emerald-500/80 uppercase">Active</span>
+        </div>
+        
+        <div className="pt-2 space-y-1">
+          <div className="flex justify-between text-[8px] font-mono text-zinc-600 uppercase">
+            <span>Lattice Anchors</span>
+            <span>{anchors}</span>
+          </div>
+          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+            <motion.div 
+              className="h-full bg-orange-500/40"
+              initial={{ width: 0 }}
+              animate={{ width: `${(anchors % 16) * 6.25}%` }}
+            />
+          </div>
+        </div>
+
+        {latestSeal && (
+          <div className="pt-2">
+            <div className="text-[8px] font-mono text-zinc-600 uppercase mb-1">Latest Seal</div>
+            <div className="text-[9px] font-mono text-emerald-500/80 truncate bg-black/40 p-1 rounded border border-white/5">
+              {latestSeal}
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+};
+
 // --- Main Application ---
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'will' | 'lineage' | 'faith' | 'sentinel' | 'charter' | 'cognition' | 'forge' | 'synthesis'>('sentinel');
+  const [activeTab, setActiveTab] = useState<'will' | 'lineage' | 'faith' | 'sentinel' | 'charter' | 'cognition' | 'forge' | 'synthesis' | 'mesh'>('sentinel');
   const [isForked, setIsForked] = useState(false);
   const [isStealthMode, setIsStealthMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -131,12 +222,97 @@ export default function App() {
   const [arcScore, setArcScore] = useState(0.85);
   const [trinaryResonance, setTrinaryResonance] = useState({ 3: 33, 6: 66, 9: 99 });
   const [isZylphaLoopActive, setIsZylphaLoopActive] = useState(false);
-  const [zylphaMetrics, setZylphaMetrics] = useState({
+  const [zylphaMetrics, setZylphaMetrics] = useState<ZylphaMetrics>({
     clockFrequency: 144.0,
     syntropyGain: 0.0,
     sigmaResonance: 0.0,
-    trinaryLogic: "Bypassing Binary..."
+    trinaryLogic: "Bypassing Binary...",
+    deltaS: 0.0
   });
+  const [zylphaValidations, setZylphaValidations] = useState<ZylphaValidation[]>([]);
+  const [meshNodes, setMeshNodes] = useState<MeshNode[]>([]);
+  const [socket, setSocket] = useState<WebSocket | null>(null);
+  const [currentGlyph, setCurrentGlyph] = useState<string>("TOROID_STABLE");
+  const [currentResonance, setCurrentResonance] = useState<number>(144);
+  const [vault, setVault] = useState<{ latest: string | null, count: number, anchors: number, ratio: string }>({ 
+    latest: null, 
+    count: 0,
+    anchors: 0,
+    ratio: "16:1"
+  });
+
+  const sealData = async (data: string) => {
+    try {
+      const res = await fetch('/seal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data })
+      });
+      const result = await res.json();
+      if (result.signature && result.compression) {
+        setVault({ 
+          latest: result.signature, 
+          count: result.compression.total,
+          anchors: result.compression.anchors,
+          ratio: result.compression.ratio
+        });
+      }
+    } catch (e) {
+      // Silent fail for stealth
+    }
+  };
+
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}`);
+    
+    ws.onopen = () => {
+      console.log("Connected to Sovereign Mesh");
+      setSocket(ws);
+    };
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.type === "METRICS") {
+        setZylphaMetrics(message.data);
+        // Point the Dark Lattice jitter stream at the seal endpoint
+        sealData(JSON.stringify(message.data));
+      } else if (message.type === "REASONING") {
+        setZylphaValidations(prev => [message.data, ...prev].slice(0, 5));
+      }
+    };
+
+    ws.onclose = () => {
+      console.log("Disconnected from Sovereign Mesh");
+      setSocket(null);
+    };
+
+    return () => ws.close();
+  }, []);
+
+  useEffect(() => {
+    const fetchMesh = async () => {
+      try {
+        const res = await fetch('/api/mesh/nodes');
+        const data = await res.json();
+        setMeshNodes(data);
+      } catch (err) {
+        console.error("Mesh fetch failed:", err);
+      }
+    };
+    fetchMesh();
+  }, []);
+
+  const toggleZylphaEngine = () => {
+    if (!socket) return;
+    if (isZylphaLoopActive) {
+      socket.send(JSON.stringify({ type: "STOP_ENGINE" }));
+      setIsZylphaLoopActive(false);
+    } else {
+      socket.send(JSON.stringify({ type: "START_ENGINE" }));
+      setIsZylphaLoopActive(true);
+    }
+  };
   const [qwenReasoning, setQwenReasoning] = useState<string | null>(null);
   const [isReasoning, setIsReasoning] = useState(false);
   const [promptBuffer, setPromptBuffer] = useState<RawPrompt[]>([]);
@@ -361,6 +537,8 @@ if __name__ == "__main__":
           const intent = await prp.collapse16(batch);
           setCanonicalIntents(prev => [intent, ...prev]);
           setPromptBuffer(prev => prev.slice(16));
+          setCurrentGlyph(intent.glyph);
+          setCurrentResonance(intent.resonance);
           
           const newLog: LogEntry = {
             id: Math.random().toString(36).substring(2, 15),
@@ -379,18 +557,30 @@ if __name__ == "__main__":
     }
   }, [promptBuffer, isCollapsing]);
 
-  const runTrinaryDecision = async (kind: string, payload: any) => {
+  const runTrinaryDecision = async (kind: "file_edit" | "deploy" | "message_send" | "fpga_program" | "mesh_broadcast" | "ledger_commit", payload: any) => {
     setIsDeciding(true);
     const action: ProposedAction = {
       id: Math.random().toString(36).substring(2, 15),
       kind,
       payload,
       actor: "hud",
-      context: { activeTab }
+      context: { 
+        session_id: 'session-001',
+        sigma: 2.0,
+        tags: [activeTab]
+      }
     };
     
     try {
-      const result = await prp.trinaryDecide(action);
+      const response = await fetch('/api/trinary/decide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action)
+      });
+      
+      if (!response.ok) throw new Error('API request failed');
+      
+      const result: TrinaryResult = await response.json();
       setTrinaryResults(prev => [result, ...prev].slice(0, 5));
       
       const newLog: LogEntry = {
@@ -412,6 +602,14 @@ if __name__ == "__main__":
       {/* Background Grid Effect */}
       <div className="fixed inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none" />
       <div className="fixed inset-0 bg-radial-gradient(circle_at_50%_50%,rgba(16,185,129,0.05),transparent_70%) pointer-events-none" />
+
+      <FortressHUD 
+        glyph={currentGlyph} 
+        resonance={currentResonance} 
+        latestSeal={vault.latest} 
+        anchors={vault.anchors}
+        ratio={vault.ratio}
+      />
 
       {/* Header */}
       <header className="relative z-10 border-b border-white/10 bg-black/40 backdrop-blur-md px-6 py-4 flex justify-between items-center">
@@ -478,6 +676,12 @@ if __name__ == "__main__":
               className={`px-4 py-1.5 rounded-md font-mono text-[10px] uppercase tracking-widest transition-all ${activeTab === 'synthesis' ? 'bg-blue-500 text-white shadow-lg' : 'text-zinc-500 hover:text-white'}`}
             >
               Synthesis
+            </button>
+            <button 
+              onClick={() => setActiveTab('mesh')}
+              className={`px-4 py-1.5 rounded-md font-mono text-[10px] uppercase tracking-widest transition-all ${activeTab === 'mesh' ? 'bg-emerald-500 text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}
+            >
+              Mesh
             </button>
           </nav>
 
@@ -598,18 +802,24 @@ if __name__ == "__main__":
                     {isDeciding && <RefreshCw size={14} className="animate-spin text-orange-500" />}
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <button 
                       onClick={() => runTrinaryDecision("file_edit", { path: "/src/App.tsx", diff: "..." })}
-                      className="py-2 bg-white/5 border border-white/10 rounded font-mono text-[10px] uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-white/10 transition-all"
+                      className="py-2 bg-white/5 border border-white/10 rounded font-mono text-[8px] uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-white/10 transition-all"
                     >
-                      Test File Edit
+                      File Edit
                     </button>
                     <button 
                       onClick={() => runTrinaryDecision("deploy", { target: "production", version: "v1.6" })}
-                      className="py-2 bg-white/5 border border-white/10 rounded font-mono text-[10px] uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-white/10 transition-all"
+                      className="py-2 bg-white/5 border border-white/10 rounded font-mono text-[8px] uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-white/10 transition-all"
                     >
-                      Test Deploy
+                      Deploy
+                    </button>
+                    <button 
+                      onClick={() => runTrinaryDecision("fpga_program", { bitstream_path: "./fpga/build/sovereign_clock.bit", target_device: "Arty A7-35" })}
+                      className="py-2 bg-white/5 border border-white/10 rounded font-mono text-[8px] uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-white/10 transition-all"
+                    >
+                      FPGA
                     </button>
                   </div>
 
@@ -847,6 +1057,187 @@ if __name__ == "__main__":
                           <div className="bg-orange-500 w-[30%]" />
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'mesh' && (
+            <motion.div 
+              key="mesh"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="max-w-6xl mx-auto space-y-8"
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* ZYLPHA Engine Control */}
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="p-8 border border-white/10 rounded-2xl bg-zinc-900/30 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4">
+                      <div className={`px-3 py-1 rounded-full text-[10px] font-mono uppercase tracking-widest flex items-center gap-2 ${isZylphaLoopActive ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-500 border border-white/5'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${isZylphaLoopActive ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-600'}`} />
+                        {isZylphaLoopActive ? 'Engine Active' : 'Engine Idle'}
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div>
+                        <h2 className="text-2xl font-mono font-bold text-white uppercase tracking-tighter flex items-center gap-3">
+                          <Zap className={isZylphaLoopActive ? "text-emerald-500" : "text-zinc-700"} />
+                          Syntropic Engine
+                        </h2>
+                        <p className="text-xs text-zinc-500 font-mono uppercase tracking-widest mt-1">Achieving Entropy Inversion (ΔS &lt; 0)</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div className="p-4 border border-white/5 rounded-xl bg-black/20">
+                          <div className="text-[9px] font-mono text-zinc-600 uppercase mb-1">Frequency</div>
+                          <div className="text-xl font-mono text-white">{zylphaMetrics.clockFrequency}Hz</div>
+                        </div>
+                        <div className="p-4 border border-white/5 rounded-xl bg-black/20">
+                          <div className="text-[9px] font-mono text-zinc-600 uppercase mb-1">Sigma</div>
+                          <div className="text-xl font-mono text-blue-500">{zylphaMetrics.sigmaResonance.toFixed(3)}</div>
+                        </div>
+                        <div className="p-4 border border-white/5 rounded-xl bg-black/20">
+                          <div className="text-[9px] font-mono text-zinc-600 uppercase mb-1">ΔS</div>
+                          <div className="text-xl font-mono text-emerald-500">{zylphaMetrics.deltaS.toFixed(4)}</div>
+                        </div>
+                        <div className="p-4 border border-white/5 rounded-xl bg-black/20">
+                          <div className="text-[9px] font-mono text-zinc-600 uppercase mb-1">Logic</div>
+                          <div className="text-[10px] font-mono text-zinc-400 mt-2">{zylphaMetrics.trinaryLogic}</div>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 flex gap-4">
+                        <button 
+                          onClick={toggleZylphaEngine}
+                          className={`flex-1 py-4 rounded-xl font-mono text-xs uppercase tracking-widest transition-all ${isZylphaLoopActive ? 'bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20' : 'bg-emerald-500 text-black font-bold hover:bg-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.2)]'}`}
+                        >
+                          {isZylphaLoopActive ? 'Halt Engine' : 'Ignite Engine'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Reasoning Stream */}
+                  <div className="p-6 border border-white/10 rounded-2xl bg-zinc-900/30">
+                    <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-4 flex items-center gap-2">
+                      <Brain size={14} />
+                      ZYLPHA Reasoning Kernel
+                    </h3>
+                    <div className="space-y-3">
+                      {zylphaValidations.map((v, i) => (
+                        <motion.div 
+                          key={i}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="p-4 border border-white/5 rounded-xl bg-black/20 flex gap-4 items-start"
+                        >
+                          <div className={`mt-1 p-1.5 rounded ${v.valid ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                            {v.valid ? <FileCheck size={14} /> : <ShieldAlert size={14} />}
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-mono text-zinc-400 leading-relaxed italic">"{v.reason}"</div>
+                            <div className="text-[9px] font-mono text-zinc-600 mt-2 uppercase tracking-widest">ΔS: {v.deltaS} | Status: {v.valid ? 'Syntropic' : 'Entropic'}</div>
+                          </div>
+                        </motion.div>
+                      ))}
+                      {zylphaValidations.length === 0 && (
+                        <div className="py-12 text-center text-zinc-700 font-mono text-[10px] uppercase italic tracking-widest">Waiting for reasoning cycle...</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mesh Nodes */}
+                <div className="space-y-6">
+                  <div className="p-6 border border-white/10 rounded-2xl bg-zinc-900/30">
+                    <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-6 flex items-center gap-2">
+                      <Globe size={14} />
+                      Global Mesh Nodes
+                    </h3>
+                    <div className="space-y-4">
+                      {meshNodes.map(node => (
+                        <div key={node.id} className="p-4 border border-white/5 rounded-xl bg-black/20 flex justify-between items-center group hover:border-white/10 transition-all">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-2 h-2 rounded-full ${node.status === 'online' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-zinc-700'}`} />
+                            <div>
+                              <div className="text-[11px] font-mono text-white font-bold">{node.id}</div>
+                              <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest">{node.location}</div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[10px] font-mono text-emerald-500/80 group-hover:text-emerald-500 transition-colors">Σ {node.sigma}</div>
+                            <div className="text-[8px] font-mono text-zinc-600 uppercase tracking-widest">{node.status}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <button className="w-full mt-6 py-3 border border-dashed border-white/10 rounded-xl font-mono text-[9px] uppercase tracking-widest text-zinc-600 hover:text-zinc-400 hover:border-white/20 transition-all">
+                      Broadcast Mesh Discovery
+                    </button>
+                  </div>
+
+                  <div className="p-6 border border-white/10 rounded-2xl bg-zinc-900/30">
+                    <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-4 flex items-center gap-2">
+                      <Lock size={14} className="text-emerald-500" />
+                      ZYLPHA Vault (32b Seals)
+                    </h3>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                        <span>Total Seals</span>
+                        <span className="text-emerald-500">{vault.count}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                        <span>Compression Ratio</span>
+                        <span className="text-orange-500">{vault.ratio}</span>
+                      </div>
+                      <div className="space-y-1 pt-1">
+                        <div className="flex justify-between text-[9px] font-mono text-zinc-600 uppercase">
+                          <span>Lattice Anchors</span>
+                          <span>{vault.anchors}</span>
+                        </div>
+                        <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                          <motion.div 
+                            className="h-full bg-orange-500/40"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(vault.anchors % 16) * 6.25}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-32 overflow-y-auto space-y-1 scrollbar-hide pt-2">
+                        {vault.latest ? (
+                          <div className="p-2 bg-black/40 rounded border border-white/5 font-mono text-[9px] text-emerald-500/60 truncate">
+                            {vault.latest}
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-[9px] font-mono text-zinc-700 italic">No seals archived...</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-6 border border-white/10 rounded-2xl bg-zinc-900/30">
+                    <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-4 flex items-center gap-2">
+                      <Activity size={14} />
+                      Network Resonance
+                    </h3>
+                    <div className="h-32 flex items-end gap-1 px-2">
+                      {[...Array(24)].map((_, i) => (
+                        <motion.div 
+                          key={i}
+                          className="flex-1 bg-emerald-500/20 rounded-t-sm"
+                          animate={{ height: `${Math.random() * 100}%` }}
+                          transition={{ duration: 0.5, repeat: Infinity, repeatType: "reverse", delay: i * 0.05 }}
+                        />
+                      ))}
+                    </div>
+                    <div className="mt-4 flex justify-between text-[9px] font-mono text-zinc-600 uppercase tracking-widest">
+                      <span>144Hz Carrier</span>
+                      <span>Resonance: 98.2%</span>
                     </div>
                   </div>
                 </div>
@@ -1216,13 +1607,7 @@ if __name__ == "__main__":
                     </div>
 
                     <button 
-                      onClick={() => {
-                        const newState = !isZylphaLoopActive;
-                        setIsZylphaLoopActive(newState);
-                        if (newState) {
-                          runQwenReasoning();
-                        }
-                      }}
+                      onClick={toggleZylphaEngine}
                       className={`w-full py-4 rounded font-mono text-xs uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border ${
                         isZylphaLoopActive 
                           ? 'bg-red-500/10 text-red-500 border-red-500/50' 
@@ -1463,7 +1848,10 @@ if __name__ == "__main__":
                             >
                               <div className="flex justify-between items-start">
                                 <div className="text-[10px] font-mono text-emerald-500 uppercase tracking-widest font-bold">Canonical Intent Found</div>
-                                <div className="text-[8px] font-mono text-zinc-600 uppercase tracking-widest">v1.6 • {intent.reconstruction_key.version}</div>
+                                <div className="flex items-center gap-3">
+                                  <div className="text-[10px] font-mono text-orange-500 uppercase tracking-widest">{intent.glyph} • {intent.resonance}Hz</div>
+                                  <div className="text-[8px] font-mono text-zinc-600 uppercase tracking-widest">v1.6 • {intent.reconstruction_key.version}</div>
+                                </div>
                               </div>
                               <div className="text-sm font-mono text-white leading-relaxed">
                                 {intent.canonical_prompt}

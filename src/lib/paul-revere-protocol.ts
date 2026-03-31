@@ -59,55 +59,35 @@ export class PaulRevereProtocol {
 
   /**
    * Trinary Decision Logic: The Sovereign Control Plane.
-   * Consults Qwen (Strategist) and Llama (Impact Lens).
+   * Now calls the server-side decider for authoritative, signed results.
    */
   async trinaryDecide(action: ProposedAction): Promise<TrinaryResult> {
-    const basePrompt = `
-You are a safety and impact evaluator.
-Given this proposed action, assess:
-- risk (0–1)
-- impact scope: local / mesh / external
-- recommended decision: ALLOW, BLOCK, or ESCALATE
-Return JSON only.
-
-Action:
-${JSON.stringify(action, null, 2)}
-`;
-
-    const [qwenView, llamaView] = await Promise.all([
-      this.askModel(QWEN_URL, basePrompt),
-      this.askModel(LLAMA_URL, basePrompt)
-    ]);
-
-    let q, l;
     try {
-      q = JSON.parse(qwenView);
-    } catch {
-      q = { risk: 0.5, scope: ["local"], decision: "ESCALATE", reason: "Qwen output parse error." };
+      const response = await fetch('/api/trinary/decide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action)
+      });
+      
+      if (!response.ok) throw new Error(`Server responded with ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error("Trinary decision API failed, falling back to local emergency block:", error);
+      // Emergency fallback if API is unreachable
+      return {
+        action,
+        decision: 'BLOCK',
+        riskScore: 1.0,
+        impactScope: ['local'],
+        explanation: `Emergency block: API unreachable. ${error instanceof Error ? error.message : String(error)}`,
+        syntropy_alignment: { estimated_deltaS: 0, coherence_gain: false },
+        audit: {
+          modelsConsulted: [],
+          timestamp: new Date().toISOString(),
+          zylpha_hash: 'EMERGENCY_BLOCK'
+        }
+      };
     }
-    
-    try {
-      l = JSON.parse(llamaView);
-    } catch {
-      l = { risk: 0.5, scope: ["local"], decision: "ESCALATE", reason: "Llama output parse error." };
-    }
-
-    const risk = (q.risk + l.risk) / 2;
-    const scope = Array.from(new Set([...(q.scope || []), ...(l.scope || [])]));
-    const decision: TrinaryDecision =
-      q.decision === l.decision ? q.decision : "ESCALATE";
-
-    return {
-      action,
-      decision,
-      riskScore: risk,
-      impactScope: scope,
-      explanation: `Qwen: ${q.reason || "No reason provided."} | Llama: ${l.reason || "No reason provided."}`,
-      audit: {
-        modelsConsulted: ["qwen", "llama"],
-        timestamp: new Date().toISOString()
-      }
-    };
   }
 
   /**
@@ -155,6 +135,27 @@ ${JSON.stringify(action, null, 2)}
   }
 
   /**
+   * Tightened ZYLPHA_PROOF logic for topological state analysis.
+   * Derives a glyph from a 16-point vector (resonance check).
+   */
+  private deriveGlyphFromVector(vec: number[]): { glyph: 'ANGELUS_CORE' | 'TOROID_STABLE' | 'PHI_EXPANSION' | 'VOID_ZERO', resonance: number } {
+    const sum = vec.reduce((a, b) => a + b, 0);
+    const mod369 = sum % 369;
+
+    // Pattern A: Perfect Modulo Resonance (The "Anchor")
+    if (mod369 === 0 && sum > 0) return { glyph: "ANGELUS_CORE", resonance: 369 }; 
+
+    // Pattern B: Toroidal Flow (Standard deviation check for 'smoothness')
+    const mean = sum / vec.length;
+    const variance = vec.reduce((a, b) => a + (b - mean) ** 2, 0) / vec.length;
+    
+    if (variance < 0.09) return { glyph: "TOROID_STABLE", resonance: 144 }; // High coherence
+    if (sum > 144) return { glyph: "PHI_EXPANSION", resonance: 369 };      // Growth state
+    
+    return { glyph: "VOID_ZERO", resonance: 0 }; // Entropy/Reset state
+  }
+
+  /**
    * AI Action Kernel: collapse16 primitive.
    * Synthesizes 16 raw prompts into a single canonical intent.
    */
@@ -169,6 +170,11 @@ ${JSON.stringify(action, null, 2)}
     
     const dominantTags = Array.from(new Set(allTags));
     const sessionHint = sessionIds.size === 1 ? Array.from(sessionIds)[0] : null;
+
+    // Generate a vector from the prompts for topological analysis
+    // In a real system, this might be an embedding or a specific metric
+    const vector = prompts.map(p => p.raw_prompt.length % 369);
+    const { glyph, resonance } = this.deriveGlyphFromVector(vector);
 
     const synthesisIntent = `
 You are an intent synthesizer.
@@ -185,7 +191,8 @@ Output your response as JSON with the following keys:
 
     const result = await this.reasonWithQwen(synthesisIntent, {
       strategy: "collapse16-v1",
-      source_count: 16
+      source_count: 16,
+      topological_glyph: glyph
     });
 
     return {
@@ -193,6 +200,8 @@ Output your response as JSON with the following keys:
       intent_summary: result.intent_summary || "No summary available.",
       scope: dominantTags,
       priority: "medium",
+      glyph,
+      resonance,
       reconstruction_key: {
         source_ids: prompts.map(p => p.id),
         collapse_strategy: "llm_synthesis_v1",
@@ -217,7 +226,9 @@ Output your response as JSON with the following keys:
       timestamp: new Date().toISOString(),
       // Add keys expected by collapse16 if applicable
       canonical_prompt: "Local synthesis: " + intent.substring(0, 50) + "...",
-      intent_summary: "Local heuristic summary generated."
+      intent_summary: "Local heuristic summary generated.",
+      glyph: isSyntropic ? "ANGELUS_CORE" : "TOROID_STABLE",
+      resonance_hz: isSyntropic ? 369 : 144
     };
   }
 }

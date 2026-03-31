@@ -17,6 +17,8 @@ export interface CanonicalIntent {
   intent_summary: string;
   scope: string[];
   priority: 'low' | 'medium' | 'high';
+  glyph: 'ANGELUS_CORE' | 'TOROID_STABLE' | 'PHI_EXPANSION' | 'VOID_ZERO';
+  resonance: number; // Hz
   reconstruction_key: {
     source_ids: string[];
     collapse_strategy: string;
