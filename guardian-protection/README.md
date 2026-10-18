@@ -43,7 +43,7 @@ py -m pip install -r .\requirements.txt
 .\GuardianVault.ps1 Add -File "C:\path\to\copy-of-evidence.pdf"
 .\GuardianVault.ps1 List
 .\GuardianVault.ps1 Verify
-.\GuardianVault.ps1 Export -CaseId <CASE_ID> -OutFile "C:\trusted-location\recovered-file.bin"
+.\GuardianVault.ps1 Export -CaseId PASTE_CASE_ID_HERE -OutFile "C:\trusted-location\recovered-file.bin"
 ```
 
 Choose a vault directory and keep the key outside it. The key is essential: if it is lost, encrypted cases cannot be recovered.
@@ -62,7 +62,7 @@ Use a **working copy** where possible; do not edit or overwrite source evidence.
 Export a case only to a trusted destination:
 
 \`\`\`powershell
-py .\\vault.py export --vault $Vault --key $Key --case-id <CASE_ID> --out "C:\\trusted-location\\recovered-file.bin"
+py .\\vault.py export --vault $Vault --key $Key --case-id PASTE_CASE_ID_HERE --out "C:\\trusted-location\\recovered-file.bin"
 \`\`\`
 
 The export uses the original filename recorded inside the encrypted envelope only when the operator chooses a destination path; the CLI writes to the exact path supplied with \`--out\`.
