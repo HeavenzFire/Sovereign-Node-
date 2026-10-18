@@ -33,6 +33,19 @@ py -m unittest discover -s tests -v
 
 ## Local vault quick start (PowerShell)
 
+Choose a vault directory and keep the key outside it. The key is essential: if it is lost, encrypted cases cannot be recovered. The PowerShell wrapper uses `%LOCALAPPDATA%` by default.
+
+From this folder:
+
+```powershell
+py -m pip install -r .\requirements.txt
+.\GuardianVault.ps1 Init
+.\GuardianVault.ps1 Add -File "C:\path\to\copy-of-evidence.pdf"
+.\GuardianVault.ps1 List
+.\GuardianVault.ps1 Verify
+.\GuardianVault.ps1 Export -CaseId <CASE_ID> -OutFile "C:\trusted-location\recovered-file.bin"
+```
+
 Choose a vault directory and keep the key outside it. The key is essential: if it is lost, encrypted cases cannot be recovered.
 
 \`\`\`powershell
