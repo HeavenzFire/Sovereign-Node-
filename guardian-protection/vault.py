@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -98,7 +99,7 @@ def add_case(vault: Path, key_path: Path, source_arg: str) -> None:
         "original_name": source.name,
         "original_size": len(original),
         "sha256": hashlib.sha256(original).hexdigest(),
-        "content_hex": original.hex(),
+        "content_b64": base64.b64encode(original).decode("ascii"),
     }
     fernet = load_fernet(key_path)
     ciphertext = fernet.encrypt(json.dumps(envelope, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
@@ -123,7 +124,7 @@ def decrypt_envelope(vault: Path, key_path: Path, case_id: str) -> tuple[dict, b
         envelope = json.loads(plaintext.decode("utf-8"))
         if envelope.get("schema") != "heavenzfire.guardian.case.v1" or envelope.get("case_id") != case_id:
             raise VaultError("Case envelope identity or schema is invalid.")
-        original = bytes.fromhex(envelope["content_hex"])
+        original = base64.b64decode(envelope["content_b64"], validate=True)
         digest = hashlib.sha256(original).hexdigest()
         if len(original) != envelope["original_size"] or digest != envelope["sha256"]:
             raise VaultError("Integrity check failed: decrypted content does not match its recorded hash.")
