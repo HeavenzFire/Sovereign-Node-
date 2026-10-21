@@ -16,13 +16,16 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
   const server = createServer(app);
-  const wss = new WebSocketServer({ server });
+  const MAX_WS_PAYLOAD_BYTES = 64 * 1024;
+  const wss = new WebSocketServer({ server, maxPayload: MAX_WS_PAYLOAD_BYTES });
 
   // Bound request bodies to reduce accidental or hostile memory exhaustion.
   app.use(express.json({ limit: "256kb" }));
 
   const decider = new TrinaryDecider();
   const engine = new SyntropicEngine();
+  // The engine is a singleton: one WebSocket owns the active stream at a time.
+  let engineOwner: WebSocket | null = null;
 
   const capabilities = UNIFIED_FIELD_CAPABILITIES;
 
@@ -128,7 +131,17 @@ async function startServer() {
       }
 
       if (data.type === "START_ENGINE") {
-        engine.start(
+        if (engineOwner && engineOwner !== ws) {
+          ws.send(JSON.stringify({ type: "ERROR", error: "ENGINE_BUSY" }));
+          return;
+        }
+        if (engineOwner === ws) {
+          ws.send(JSON.stringify({ type: "ERROR", error: "ENGINE_ALREADY_OWNED" }));
+          return;
+        }
+        engineOwner = ws;
+        try {
+          engine.start(
           (metrics) => {
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: "METRICS", data: metrics }));
@@ -139,15 +152,38 @@ async function startServer() {
               ws.send(JSON.stringify({ type: "REASONING", data: validation }));
             }
           }
-        );
+          );
+          ws.send(JSON.stringify({ type: "ENGINE_STARTED" }));
+        } catch {
+          engineOwner = null;
+          ws.send(JSON.stringify({ type: "ERROR", error: "ENGINE_START_FAILED" }));
+        }
       } else if (data.type === "STOP_ENGINE") {
+        if (engineOwner !== ws) {
+          ws.send(JSON.stringify({ type: "ERROR", error: "NOT_ENGINE_OWNER" }));
+          return;
+        }
         engine.stop();
+        engineOwner = null;
+        ws.send(JSON.stringify({ type: "ENGINE_STOPPED" }));
       } else {
         ws.send(JSON.stringify({ type: "ERROR", error: "Unsupported message type" }));
       }
     });
 
-    ws.on("close", () => engine.stop());
+    ws.on("close", () => {
+      if (engineOwner === ws) {
+        engine.stop();
+        engineOwner = null;
+      }
+    });
+
+    ws.on("error", () => {
+      if (engineOwner === ws) {
+        engine.stop();
+        engineOwner = null;
+      }
+    });
   });
 
   if (process.env.NODE_ENV !== "production") {
