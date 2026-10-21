@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { TrinaryDecider } from "./src/lib/trinary-decide";
 import { SyntropicEngine } from "./src/lib/syntropic-engine";
 import { zylpha } from "./src/lib/zylpha-kernel";
+import { UNIFIED_FIELD_CAPABILITIES, isValidTaskEnvelope, requiresApproval } from "./src/lib/unified-field-contract";
 
 const startedAt = Date.now();
 const NODE_ID = process.env.HEAVENZFIRE_NODE_ID || "sovereign-node-local";
@@ -23,14 +24,7 @@ async function startServer() {
   const decider = new TrinaryDecider();
   const engine = new SyntropicEngine();
 
-  const capabilities = [
-    { name: "health.read", version: "1.0.0", approval_required: false },
-    { name: "capabilities.read", version: "1.0.0", approval_required: false },
-    { name: "vault.read", version: "1.0.0", approval_required: false },
-    { name: "seal.create", version: "1.0.0", approval_required: true },
-    { name: "trinary.decide", version: "1.0.0", approval_required: true },
-    { name: "engine.stream", version: "1.0.0", approval_required: true }
-  ];
+  const capabilities = UNIFIED_FIELD_CAPABILITIES;
 
   // API routes FIRST. Health is a local process observation, not mesh-wide proof.
   const healthHandler = (_req: express.Request, res: express.Response) => {
@@ -48,6 +42,25 @@ async function startServer() {
 
   app.get("/api/capabilities", (_req, res) => {
     res.json({ schema_version: "1.0.0", node_id: NODE_ID, capabilities });
+  });
+
+
+  // Validate and classify a proposed task without executing it.
+  // Approval-required tasks are reported, never silently executed here.
+  app.post("/api/tasks/validate", (req, res) => {
+    if (!isValidTaskEnvelope(req.body)) {
+      return res.status(400).json({ valid: false, error: "Invalid task envelope or unknown capability" });
+    }
+
+    const approvalRequired = requiresApproval(req.body.capability);
+    res.json({
+      valid: true,
+      task_id: req.body.task_id,
+      capability: req.body.capability,
+      approval_required: approvalRequired,
+      execution: "not_started",
+      deadline: req.body.deadline
+    });
   });
 
   /**
