@@ -7,75 +7,113 @@ import { TrinaryDecider } from "./src/lib/trinary-decide";
 import { SyntropicEngine } from "./src/lib/syntropic-engine";
 import { zylpha } from "./src/lib/zylpha-kernel";
 
+const startedAt = Date.now();
+const NODE_ID = process.env.HEAVENZFIRE_NODE_ID || "sovereign-node-local";
+const VERSION = process.env.npm_package_version || "0.0.0";
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
   const server = createServer(app);
   const wss = new WebSocketServer({ server });
 
-  app.use(express.json());
+  // Bound request bodies to reduce accidental or hostile memory exhaustion.
+  app.use(express.json({ limit: "256kb" }));
 
   const decider = new TrinaryDecider();
   const engine = new SyntropicEngine();
 
-  // API routes FIRST
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+  const capabilities = [
+    { name: "health.read", version: "1.0.0", approval_required: false },
+    { name: "capabilities.read", version: "1.0.0", approval_required: false },
+    { name: "vault.read", version: "1.0.0", approval_required: false },
+    { name: "seal.create", version: "1.0.0", approval_required: true },
+    { name: "trinary.decide", version: "1.0.0", approval_required: true },
+    { name: "engine.stream", version: "1.0.0", approval_required: true }
+  ];
+
+  // API routes FIRST. Health is a local process observation, not mesh-wide proof.
+  const healthHandler = (_req: express.Request, res: express.Response) => {
+    res.json({
+      status: "ok",
+      node_id: NODE_ID,
+      version: VERSION,
+      uptime_seconds: Math.floor((Date.now() - startedAt) / 1000),
+      capabilities: capabilities.map((item) => item.name),
+      observed_at: new Date().toISOString()
+    });
+  };
+  app.get("/health", healthHandler);
+  app.get("/api/health", healthHandler);
+
+  app.get("/api/capabilities", (_req, res) => {
+    res.json({ schema_version: "1.0.0", node_id: NODE_ID, capabilities });
   });
 
   /**
-   * ZYLPHA Bridge v2.4: The /seal Endpoint.
-   * "Word into Flesh" gateway.
-   * Operates in "11th Hour Stillness" (no logging).
+   * ZYLPHA Bridge: sealing may have external or durable effects; callers should
+   * require an explicit approval step before invoking this endpoint.
    */
   app.post("/seal", (req, res) => {
-    const { data } = req.body;
-    if (!data) return res.status(400).json({ error: "No data provided" });
-    
-    const signature = zylpha.seal(data);
-    res.json({ 
-      signature, 
-      status: "SEALED",
-      compression: zylpha.getCompressionStatus()
-    });
+    const { data } = req.body ?? {};
+    if (data === undefined || data === null || data === "") {
+      return res.status(400).json({ error: "No data provided" });
+    }
+
+    try {
+      const signature = zylpha.seal(data);
+      res.json({
+        signature,
+        status: "SEALED",
+        compression: zylpha.getCompressionStatus()
+      });
+    } catch {
+      res.status(500).json({ error: "Seal operation failed" });
+    }
   });
 
-  app.get("/api/vault", (req, res) => {
-    res.json({ 
+  app.get("/api/vault", (_req, res) => {
+    res.json({
       latest: zylpha.getLatestSeal(),
       count: zylpha.getVault().length,
       compression: zylpha.getCompressionStatus(),
-      history: zylpha.getVault().slice(-10) // Last 10 for performance
+      history: zylpha.getVault().slice(-10)
     });
   });
 
   app.post("/api/trinary/decide", async (req, res) => {
     try {
-      const action = req.body;
-      const result = await decider.decide(action);
+      const result = await decider.decide(req.body);
       res.json(result);
-    } catch (error: any) {
-      console.error("Trinary decision error:", error);
-      res.status(500).json({ error: error.message });
+    } catch {
+      res.status(500).json({ error: "Trinary decision failed" });
     }
   });
 
-  // Global Mesh Simulation
-  app.get("/api/mesh/nodes", (req, res) => {
-    res.json([
-      { id: "node-001", status: "online", sigma: 2.0, location: "US-EAST-1" },
-      { id: "node-002", status: "online", sigma: 1.8, location: "EU-WEST-2" },
-      { id: "node-003", status: "offline", sigma: 0.0, location: "AP-SOUTH-1" },
-      { id: "node-004", status: "online", sigma: 2.1, location: "SA-EAST-1" },
-    ]);
+  // These entries are fixtures for the UI, not live remote-node observations.
+  app.get("/api/mesh/nodes", (_req, res) => {
+    res.json({
+      mode: "simulation",
+      live_discovery: false,
+      nodes: [
+        { id: "node-001", status: "simulated-online", sigma: 2.0, location: "US-EAST-1" },
+        { id: "node-002", status: "simulated-online", sigma: 1.8, location: "EU-WEST-2" },
+        { id: "node-003", status: "simulated-offline", sigma: 0.0, location: "AP-SOUTH-1" },
+        { id: "node-004", status: "simulated-online", sigma: 2.1, location: "SA-EAST-1" }
+      ]
+    });
   });
 
-  // WebSocket for Syntropic Engine
   wss.on("connection", (ws: WebSocket) => {
-    console.log("New mesh connection established.");
+    ws.on("message", (message) => {
+      let data: { type?: string };
+      try {
+        data = JSON.parse(message.toString());
+      } catch {
+        ws.send(JSON.stringify({ type: "ERROR", error: "Invalid JSON message" }));
+        return;
+      }
 
-    ws.on("message", async (message: string) => {
-      const data = JSON.parse(message);
       if (data.type === "START_ENGINE") {
         engine.start(
           (metrics) => {
@@ -91,32 +129,34 @@ async function startServer() {
         );
       } else if (data.type === "STOP_ENGINE") {
         engine.stop();
+      } else {
+        ws.send(JSON.stringify({ type: "ERROR", error: "Unsupported message type" }));
       }
     });
 
-    ws.on("close", () => {
-      engine.stop();
-    });
+    ws.on("close", () => engine.stop());
   });
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: "spa",
+      appType: "spa"
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get("*", (_req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  server.listen(PORT, "127.0.0.1", () => {
+    console.log(`Sovereign Node listening on http://127.0.0.1:${PORT}`);
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error("Sovereign Node failed to start:", error);
+  process.exitCode = 1;
+});
