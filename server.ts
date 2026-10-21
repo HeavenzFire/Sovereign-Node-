@@ -7,6 +7,7 @@ import { TrinaryDecider } from "./src/lib/trinary-decide";
 import { SyntropicEngine } from "./src/lib/syntropic-engine";
 import { zylpha } from "./src/lib/zylpha-kernel";
 import { UNIFIED_FIELD_CAPABILITIES, isValidTaskEnvelope, requiresApproval } from "./src/lib/unified-field-contract";
+import { UnifiedFieldRegistry } from "./src/lib/unified-field-registry";
 
 const startedAt = Date.now();
 const NODE_ID = process.env.HEAVENZFIRE_NODE_ID || "sovereign-node-local";
@@ -23,6 +24,9 @@ async function startServer() {
 
   const decider = new TrinaryDecider();
   const engine = new SyntropicEngine();
+  // Process-local registry. This is live only for nodes registered with this process;
+  // the server remains loopback-bound until a separately secured remote transport is implemented.
+  const registry = new UnifiedFieldRegistry(Number(process.env.HEAVENZFIRE_HEARTBEAT_TTL_MS || 15_000));
 
   const capabilities = UNIFIED_FIELD_CAPABILITIES;
 
@@ -101,6 +105,53 @@ async function startServer() {
     } catch {
       res.status(500).json({ error: "Trinary decision failed" });
     }
+  });
+
+  // Process-local live registry routes. The HTTP listener is loopback-only; this is not remote mesh discovery.
+  app.get("/api/mesh/live-nodes", (_req, res) => {
+    res.json({
+      mode: "local-registry",
+      live_discovery: false,
+      heartbeat_ttl_ms: Number(process.env.HEAVENZFIRE_HEARTBEAT_TTL_MS || 15_000),
+      nodes: registry.list()
+    });
+  });
+
+  app.post("/api/mesh/register", (req, res) => {
+    try {
+      const { id, capabilities: nodeCapabilities, maxTasks } = req.body ?? {};
+      if (typeof id !== "string" || !Array.isArray(nodeCapabilities) || !Number.isInteger(maxTasks)) {
+        return res.status(400).json({ error: "Expected id, capabilities[], and integer maxTasks" });
+      }
+      const node = registry.register({ id, capabilities: nodeCapabilities, maxTasks });
+      return res.status(201).json({ registered: true, node });
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Node registration failed"
+      });
+    }
+  });
+
+  app.post("/api/mesh/heartbeat", (req, res) => {
+    const id = req.body?.id;
+    if (typeof id !== "string") {
+      return res.status(400).json({ error: "Expected node id" });
+    }
+    try {
+      const node = registry.heartbeat(id);
+      if (!node) return res.status(404).json({ error: "Node is not registered" });
+      return res.json({ accepted: true, node });
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Heartbeat rejected"
+      });
+    }
+  });
+
+  app.delete("/api/mesh/live-nodes/:id", (req, res) => {
+    const removed = registry.remove(req.params.id);
+    if (!removed) return res.status(404).json({ error: "Node is not registered" });
+    return res.status(204).end();
   });
 
   // These entries are fixtures for the UI, not live remote-node observations.
