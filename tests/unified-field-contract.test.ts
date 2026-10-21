@@ -7,6 +7,7 @@ import {
   requiresApproval
 } from "../src/lib/unified-field-contract";
 import { transitionTask } from "../src/lib/task-state-machine";
+import { withRateLimitRetry } from "../src/lib/rate-limit-retry";
 
 test("capability names are unique and versioned", () => {
   const names = UNIFIED_FIELD_CAPABILITIES.map((item) => item.name);
@@ -65,4 +66,57 @@ test("terminal task states cannot transition again", () => {
 test("invalid retry budgets are rejected", () => {
   assert.throws(() => transitionTask("RUNNING", "RETRYABLE_FAILURE", -1, 3), /attempt/);
   assert.throws(() => transitionTask("RUNNING", "RETRYABLE_FAILURE", 1, 0), /maxAttempts/);
+});
+
+test("rate-limit retry honors Retry-After and succeeds within the budget", async () => {
+  let attempts = 0;
+  const delays: number[] = [];
+  const result = await withRateLimitRetry(async () => {
+    attempts += 1;
+    if (attempts < 3) {
+      throw Object.assign(new Error("rate limited"), { status: 429, retryAfter: "2" });
+    }
+    return "ok";
+  }, { sleep: async (ms) => { delays.push(ms); }, random: () => 0 });
+
+  assert.equal(result, "ok");
+  assert.equal(attempts, 3);
+  assert.deepEqual(delays, [2000, 2000]);
+});
+
+test("transient server errors use bounded exponential jitter", async () => {
+  let attempts = 0;
+  const delays: number[] = [];
+  const result = await withRateLimitRetry(async () => {
+    attempts += 1;
+    if (attempts < 3) throw Object.assign(new Error("temporary"), { status: 503 });
+    return 42;
+  }, {
+    baseDelayMs: 500,
+    maxDelayMs: 1000,
+    random: () => 0.5,
+    sleep: async (ms) => { delays.push(ms); }
+  });
+
+  assert.equal(result, 42);
+  assert.deepEqual(delays, [250, 500]);
+});
+
+test("non-retryable errors are returned immediately", async () => {
+  let attempts = 0;
+  await assert.rejects(withRateLimitRetry(async () => {
+    attempts += 1;
+    throw Object.assign(new Error("forbidden"), { status: 403 });
+  }, { sleep: async () => {} }), /forbidden/);
+  assert.equal(attempts, 1);
+});
+
+test("retry helper stops at maxAttempts and validates its configuration", async () => {
+  let attempts = 0;
+  await assert.rejects(withRateLimitRetry(async () => {
+    attempts += 1;
+    throw Object.assign(new Error("still unavailable"), { status: 429 });
+  }, { maxAttempts: 3, sleep: async () => {}, random: () => 0 }), /still unavailable/);
+  assert.equal(attempts, 3);
+  await assert.rejects(withRateLimitRetry(async () => "unused", { maxAttempts: 0 }), /maxAttempts/);
 });
