@@ -152,7 +152,21 @@ async function startServer() {
               ws.send(JSON.stringify({ type: "REASONING", data: validation }));
             }
           }
-          );
+          ).then(() => {
+            // Natural completion must release the lease so this socket or another
+            // socket can start a later run.
+            if (engineOwner === ws) {
+              engineOwner = null;
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "ENGINE_COMPLETED" }));
+              }
+            }
+          }).catch(() => {
+            if (engineOwner === ws) engineOwner = null;
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "ERROR", error: "ENGINE_START_FAILED" }));
+            }
+          });
           ws.send(JSON.stringify({ type: "ENGINE_STARTED" }));
         } catch {
           engineOwner = null;
