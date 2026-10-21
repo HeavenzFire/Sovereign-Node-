@@ -23,7 +23,7 @@ test("unknown heartbeat is not accepted", () => {
 test("rejects malformed ids, duplicate capabilities, and unsafe capacities", () => {
   const registry = new UnifiedFieldRegistry(100, () => 1000);
   assert.throws(() => registry.register({ id: "../bad", capabilities: ["health.read"], maxTasks: 1 }));
-  assert.throws(() => registry.register({ id: "worker-a", capabilities: ["health.read", "capabilities.read"], maxTasks: 1 }));
+  assert.throws(() => registry.register({ id: "worker-a", capabilities: ["health.read", "health.read"], maxTasks: 1 }));
   assert.throws(() => registry.register({ id: "worker-b", capabilities: ["health.read"], maxTasks: 0 }));
   assert.throws(() => registry.register({ id: "worker-c", capabilities: ["Task RUN"], maxTasks: 1 }));
 });
@@ -37,7 +37,7 @@ test("re-registration refreshes heartbeat without resetting registration time", 
   const node = registry.list()[0];
   assert.equal(node.registeredAtMs, 1000);
   assert.equal(node.lastHeartbeatMs, 1050);
-  assert.deepEqual(node.capabilities, ["health.read", "health.read"]);
+  assert.deepEqual(node.capabilities, ["health.read", "capabilities.read"]);
   assert.equal(node.maxTasks, 3);
 });
 
