@@ -120,3 +120,17 @@ test("retry helper stops at maxAttempts and validates its configuration", async 
   assert.equal(attempts, 3);
   await assert.rejects(withRateLimitRetry(async () => "unused", { maxAttempts: 0 }), /maxAttempts/);
 });
+
+test("RETRIES_EXHAUSTED is an explicit terminal transition only at the retry limit", () => {
+  assert.equal(transitionTask("RUNNING", "RETRIES_EXHAUSTED", 3, 3), "DEAD_LETTER");
+  assert.equal(transitionTask("LEASED", "RETRIES_EXHAUSTED", 5, 3), "DEAD_LETTER");
+  assert.throws(
+    () => transitionTask("RUNNING", "RETRIES_EXHAUSTED", 2, 3),
+    /requires attempt >= maxAttempts/
+  );
+});
+
+test("unknown runtime task states fail with a controlled error", () => {
+  const unknownState = "BROKEN" as unknown as Parameters<typeof transitionTask>[0];
+  assert.throws(() => transitionTask(unknownState, "STARTED", 0, 3), /Unknown task state/);
+});
