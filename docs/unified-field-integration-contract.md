@@ -50,3 +50,18 @@ A separate worker may take the WebSocket validation/test task. Another may imple
 ## Rollback
 
 This contract is additive documentation. Revert its single commit if it conflicts with an agreed project direction; no runtime behavior is changed by this document.
+
+
+## Current-state delta (2026-10-20)
+
+The live `main` source has advanced since the initial inventory above. Treat this delta as the current correction to the baseline table:
+
+- `GET /health` and `GET /api/health` now return node ID, version, uptime, capability names, and observation time.
+- `GET /api/capabilities` exposes the shared `UNIFIED_FIELD_CAPABILITIES` contract.
+- `POST /api/tasks/validate` validates a task envelope and reports whether the requested capability requires approval. It explicitly reports `execution: "not_started"`; it does not execute the task.
+- Express JSON parsing is limited to 256 KiB.
+- The HTTP server binds to `127.0.0.1`.
+- `GET /api/mesh/nodes` returns simulation fixtures with `live_discovery: false`.
+- WebSocket frame size and engine ownership remain under review in draft PR #6; do not treat those changes as merged.
+
+These observations come from source inspection only. The approval flag returned by task validation is metadata, not proof that approval enforcement is implemented on every protected route. Runtime integration, lint, build, and security acceptance tests remain release gates.
