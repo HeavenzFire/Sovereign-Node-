@@ -4,6 +4,8 @@
  * Registration and heartbeat timestamps are assigned by this process; clients
  * cannot claim a fresh heartbeat by supplying their own timestamp.
  */
+import { isKnownCapability } from "./unified-field-contract";
+
 export type RegistryNodeInput = {
   id: string;
   capabilities: readonly string[];
@@ -44,7 +46,7 @@ export class UnifiedFieldRegistry {
       throw new Error("Invalid node id");
     }
     if (!Array.isArray(input.capabilities) ||
-        input.capabilities.some((c) => typeof c !== "string" || !CAPABILITY_PATTERN.test(c)) ||
+        input.capabilities.some((c) => !isKnownCapability(c) || !CAPABILITY_PATTERN.test(c)) ||
         new Set(input.capabilities).size !== input.capabilities.length) {
       throw new Error("Invalid or duplicate node capabilities");
     }
