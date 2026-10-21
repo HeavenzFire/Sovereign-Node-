@@ -73,10 +73,18 @@ Keep the printed SHA-256 value alongside the backup on the separate storage devi
 6. Preserve approval gates for destructive operations, privilege changes, network exposure, and secret handling. Recovery must not silently disable security controls.
 7. Record test results accurately. A committed test is not proof that it passed; only report success after running it and inspecting the result.
 
+## Current implementation status
+
+- `src/lib/unified-field-registry.ts` implements process-local registration, declared-capability validation, server-generated heartbeat timestamps, TTL-based healthy/offline snapshots, and explicit removal.
+- `server.ts` exposes `POST /api/mesh/register`, `POST /api/mesh/heartbeat`, `GET /api/mesh/live-nodes`, and `DELETE /api/mesh/live-nodes/:id`.
+- The process still binds to `127.0.0.1`. The registry is not persistent across restarts and is not remote mesh discovery. The existing `/api/mesh/nodes` route remains simulation fixtures.
+- GitHub Actions Unified Field verification run #12 passed the locked install, contract-test step, type-check, and production build on commit `2c26e528f6a8e8356781d0e1634161b2343586d5`. Subsequent capability-validation changes must pass their own latest run before they are treated as verified.
+- The connected Windows machine could not clone this repository over HTTPS because GitHub authentication failed; this prevented a separate local test run.
+
 ## Next engineering steps
 
-1. Run `npm ci`, `npm test`, `npm run lint`, and `npm run build` in a clean checkout.
-2. Resolve any failures before merging pull request #7.
-3. Add real node registration and heartbeat handling separately from simulation fixtures.
-4. Add integration tests that disconnect a worker, confirm timeout detection, and verify bounded reassignment without duplicate side effects. Use idempotency keys and durable task state before claiming crash-safe execution.
-5. Document an operator-controlled restore and rollback drill.
+1. Confirm the latest GitHub Actions run passes after capability allowlisting and test corrections.
+2. Add HTTP integration tests for registration, heartbeat, invalid input, TTL expiry, and removal.
+3. Add authentication and authorization before any non-loopback listener or cross-machine registration is considered.
+4. Add durable task state and idempotency enforcement, then test worker loss and bounded reassignment without duplicate side effects.
+5. Persist registry state only with an explicit recovery/versioning policy, then run operator-controlled restart and restore drills.
