@@ -38,5 +38,5 @@ export function isValidTaskEnvelope(value: unknown): value is {
   if (typeof task.idempotency_key !== "string" || task.idempotency_key.trim().length < 1 || task.idempotency_key.length > 128) return false;
   if (typeof task.deadline !== "string" || task.deadline.length > 40) return false;
   const deadlineMs = Date.parse(task.deadline);
-  return Number.isFinite(deadlineMs) && deadlineMs > 0;
+  return Number.isFinite(deadlineMs) && deadlineMs > Date.now();
 }
