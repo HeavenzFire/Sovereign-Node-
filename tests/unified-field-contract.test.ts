@@ -41,4 +41,5 @@ test("malformed task envelopes are rejected", () => {
   assert.equal(isValidTaskEnvelope({ task_id: "t", capability: "unknown", idempotency_key: "k", deadline: "2030-01-01" }), false);
   assert.equal(isValidTaskEnvelope({ task_id: "t", capability: "health.read", idempotency_key: "", deadline: "2030-01-01" }), false);
   assert.equal(isValidTaskEnvelope({ task_id: "t", capability: "health.read", idempotency_key: "k", deadline: "not-a-date" }), false);
+  assert.equal(isValidTaskEnvelope({ task_id: "t", capability: "health.read", idempotency_key: "k", deadline: "2000-01-01T00:00:00.000Z" }), false);
 });
