@@ -27,6 +27,7 @@ async function startServer() {
   const engine = new SyntropicEngine();
   // The engine is a singleton: one WebSocket owns the active stream at a time.
   let engineOwner: WebSocket | null = null;
+  let engineRun: Promise<void> | null = null;
   // Process-local registry. This is live only for nodes registered with this process;
   // the server remains loopback-bound until a separately secured remote transport is implemented.
   const registry = new UnifiedFieldRegistry(Number(process.env.HEAVENZFIRE_HEARTBEAT_TTL_MS || 15_000));
@@ -192,24 +193,34 @@ async function startServer() {
         }
         engineOwner = ws;
         try {
-          engine.start(
+          const run = engine.start(
             (metrics) => {
-              if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "METRICS", data: metrics }));
+              if (engineOwner === ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "METRICS", data: metrics }));
             },
             (validation) => {
-              if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "REASONING", data: validation }));
+              if (engineOwner === ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "REASONING", data: validation }));
             }
-          ).then(() => {
-            if (engineOwner === ws) {
-              engineOwner = null;
+          );
+          engineRun = run;
+          run.then(() => {
+            // Ownership is released only after the prior async loop has settled.
+            // STOP/close/error merely request cancellation; they must not permit a
+            // second owner to restart the singleton while an old loop is suspended.
+            if (engineRun === run) {
+              engineRun = null;
+              if (engineOwner === ws) engineOwner = null;
               if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ENGINE_COMPLETED" }));
             }
           }).catch(() => {
-            if (engineOwner === ws) engineOwner = null;
+            if (engineRun === run) {
+              engineRun = null;
+              if (engineOwner === ws) engineOwner = null;
+            }
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ERROR", error: "ENGINE_START_FAILED" }));
           });
           ws.send(JSON.stringify({ type: "ENGINE_STARTED" }));
         } catch {
+          engineRun = null;
           engineOwner = null;
           ws.send(JSON.stringify({ type: "ERROR", error: "ENGINE_START_FAILED" }));
         }
@@ -219,18 +230,21 @@ async function startServer() {
           return;
         }
         engine.stop();
-        engineOwner = null;
-        ws.send(JSON.stringify({ type: "ENGINE_STOPPED" }));
+        // Keep ownership until engineRun settles; releasing here allows a new START
+        // to revive an old loop that is awaiting the reasoning provider or timer.
+        ws.send(JSON.stringify({ type: "ENGINE_STOP_REQUESTED" }));
       } else {
         ws.send(JSON.stringify({ type: "ERROR", error: "Unsupported message type" }));
       }
     });
 
     ws.on("close", () => {
-      if (engineOwner === ws) { engine.stop(); engineOwner = null; }
+      if (engineOwner === ws) engine.stop();
+      // Do not clear engineOwner here. The run promise releases it after settling.
     });
     ws.on("error", () => {
-      if (engineOwner === ws) { engine.stop(); engineOwner = null; }
+      if (engineOwner === ws) engine.stop();
+      // Do not clear engineOwner here. The run promise releases it after settling.
     });
   });
 
