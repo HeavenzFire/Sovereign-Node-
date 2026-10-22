@@ -49,7 +49,7 @@ export function validateCapabilityRegistry(input) {
     if (!isRecord(health)) {
       errors.push(`${prefix}.health_check must be an object`);
     } else if (health.kind === "http") {
-      if (typeof health.path !== "string" || !health.path.startsWith("/") || health.path.startsWith("//")) {
+      if (typeof health.path !== "string" || !health.path.startsWith("/") || health.path.startsWith("//") || health.path.includes("\\") || /[\u0000-\u001F\u007F]/.test(health.path)) {
         errors.push(`${prefix}.health_check.path must be a local absolute path beginning with one slash`);
       }
       if (health.method !== undefined && !["GET", "HEAD"].includes(health.method)) {
