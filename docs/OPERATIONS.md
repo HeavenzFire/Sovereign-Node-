@@ -38,7 +38,7 @@ $env:HEAVENZFIRE_APPROVAL_TOKEN = [Convert]::ToBase64String($bytes)
 npm run dev
 ```
 
-For the two HTTP routes, pass the token in the `x-heavenzfire-approval` header. For WebSocket `START_ENGINE`, include it as the `approval_token` property in the message. Do not print it, commit it, put it in a URL, or include it in logs. If the environment variable is absent or shorter than 32 characters, the consequential operations are denied.
+For the two HTTP routes, pass the token in the `x-heavenzfire-approval` header. For WebSocket `START_ENGINE`, include it as the `approval_token` property in the message. The local frontend prompts for the token when the user first starts the engine, requests a trinary decision, or explicitly seals the current metrics; it holds the token in component memory only and does not persist it to browser storage. Metric updates no longer trigger automatic sealing. Do not print the token, commit it, put it in a URL, or include it in logs. If the environment variable is absent or shorter than 32 characters, consequential operations are denied.
 
 This is a shared bearer credential and a fail-closed authorization gate; it is **not** a trusted human-approval interface or per-task approval ledger. Keep the service loopback-only and treat possession of this token as permission to invoke these operations. A production deployment still needs an authenticated approval workflow, audit trail, and stronger identity/authorization controls.
 
