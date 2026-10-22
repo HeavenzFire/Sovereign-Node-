@@ -27,6 +27,21 @@ Invoke-RestMethod http://127.0.0.1:3000/api/mesh/live-nodes
 
 A successful health response is not evidence that every dependency, worker, or remote node is healthy.
 
+## Approval credential for consequential operations
+
+The `POST /seal`, `POST /api/trinary/decide`, and WebSocket `START_ENGINE` paths fail closed unless a configured approval credential is supplied. Configure a fresh 32-byte random token in the same PowerShell session used to start the server:
+
+```powershell
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+$env:HEAVENZFIRE_APPROVAL_TOKEN = [Convert]::ToBase64String($bytes)
+npm run dev
+```
+
+For the two HTTP routes, pass the token in the `x-heavenzfire-approval` header. For WebSocket `START_ENGINE`, include it as the `approval_token` property in the message. Do not print it, commit it, put it in a URL, or include it in logs. If the environment variable is absent or shorter than 32 characters, the consequential operations are denied.
+
+This is a shared bearer credential and a fail-closed authorization gate; it is **not** a trusted human-approval interface or per-task approval ledger. Keep the service loopback-only and treat possession of this token as permission to invoke these operations. A production deployment still needs an authenticated approval workflow, audit trail, and stronger identity/authorization controls.
+
 ## Validate a task without executing it
 
 ```powershell
