@@ -68,7 +68,7 @@ export async function withRateLimitRetry<T>(
       const serverDelay = retryAfterMs(error.retryAfter, now());
       const exponentialCap = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
       const jitter = Math.floor(Math.max(0, Math.min(1, random())) * exponentialCap);
-      await sleep(serverDelay ?? jitter);
+      await sleep(serverDelay === undefined ? jitter : Math.min(maxDelayMs, serverDelay));
     }
   }
 
