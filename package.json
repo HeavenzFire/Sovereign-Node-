@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx --test tests/unified-field-contract.test.ts tests/unified-field-routing.test.ts tests/unified-field-registry.test.ts tests/worker-router.test.ts",
+    "test": "tsx --test tests/unified-field-contract.test.ts tests/unified-field-routing.test.ts tests/unified-field-registry.test.ts tests/worker-router.test.ts tests/rate-limit-retry.test.ts",
     "test:capabilities": "node --test scripts/capability-registry.test.mjs"
   },
   "dependencies": {
