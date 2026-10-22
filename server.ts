@@ -8,10 +8,13 @@ import { SyntropicEngine } from "./src/lib/syntropic-engine";
 import { zylpha } from "./src/lib/zylpha-kernel";
 import { UNIFIED_FIELD_CAPABILITIES, isValidTaskEnvelope, requiresApproval } from "./src/lib/unified-field-contract";
 import { UnifiedFieldRegistry } from "./src/lib/unified-field-registry";
+import { hasValidApprovalToken } from "./src/lib/approval-gate";
 
 const startedAt = Date.now();
 const NODE_ID = process.env.HEAVENZFIRE_NODE_ID || "sovereign-node-local";
 const VERSION = process.env.npm_package_version || "0.0.0";
+const isApprovalAuthorized = (provided: unknown) =>
+  hasValidApprovalToken(provided, process.env.HEAVENZFIRE_APPROVAL_TOKEN);
 
 async function startServer() {
   const app = express();
@@ -76,6 +79,9 @@ async function startServer() {
    * require an explicit approval step before invoking this endpoint.
    */
   app.post("/seal", (req, res) => {
+    if (!isApprovalAuthorized(req.get("x-heavenzfire-approval"))) {
+      return res.status(403).json({ error: "Approval credential required or invalid" });
+    }
     const { data } = req.body ?? {};
     if (data === undefined || data === null || data === "") {
       return res.status(400).json({ error: "No data provided" });
@@ -103,6 +109,9 @@ async function startServer() {
   });
 
   app.post("/api/trinary/decide", async (req, res) => {
+    if (!isApprovalAuthorized(req.get("x-heavenzfire-approval"))) {
+      return res.status(403).json({ error: "Approval credential required or invalid" });
+    }
     try {
       const result = await decider.decide(req.body);
       res.json(result);
@@ -174,7 +183,7 @@ async function startServer() {
 
   wss.on("connection", (ws: WebSocket) => {
     ws.on("message", (message) => {
-      let data: { type?: string };
+      let data: { type?: string; approval_token?: unknown };
       try {
         data = JSON.parse(message.toString());
       } catch {
@@ -183,6 +192,10 @@ async function startServer() {
       }
 
       if (data.type === "START_ENGINE") {
+        if (!isApprovalAuthorized(data.approval_token)) {
+          ws.send(JSON.stringify({ type: "ERROR", error: "APPROVAL_REQUIRED" }));
+          return;
+        }
         if (engineOwner && engineOwner !== ws) {
           ws.send(JSON.stringify({ type: "ERROR", error: "ENGINE_BUSY" }));
           return;
