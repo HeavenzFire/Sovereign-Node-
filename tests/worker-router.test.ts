@@ -68,3 +68,11 @@ test("retries only bounded, idempotent worker failures", () => {
     approvalRequired: false, approvalGranted: false
   }), false);
 });
+
+test("excludes workers with missing or blank IDs", () => {
+  const invalid: WorkerCandidate[] = [
+    { id: "", health: "online", capabilities: ["health.read"], activeTasks: 0 },
+    { id: "   ", health: "online", capabilities: ["health.read"], activeTasks: 0 }
+  ];
+  assert.equal(selectWorker("health.read", invalid).selected, false);
+});

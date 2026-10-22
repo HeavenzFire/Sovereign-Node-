@@ -23,6 +23,8 @@ export function selectWorker(
 ): WorkerSelection {
   const eligible = workers
     .filter((worker) =>
+      typeof worker.id === "string" &&
+      worker.id.trim().length > 0 &&
       worker.health === "online" &&
       worker.capabilities.includes(capability) &&
       Number.isSafeInteger(worker.activeTasks) &&

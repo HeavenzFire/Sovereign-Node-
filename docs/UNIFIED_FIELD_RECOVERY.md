@@ -51,12 +51,18 @@ Run this on a trusted machine with Git installed. Store the output on a separate
 ```powershell
 $repo = "https://github.com/HeavenzFire/Sovereign-Node-.git"
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$mirror = Join-Path $PWD "HeavenzFire-Sovereign-Node.git"
 $backup = Join-Path $PWD "HeavenzFire-Sovereign-Node-$stamp.bundle"
-git clone --mirror $repo ".\HeavenzFire-Sovereign-Node.git"
-if ($LASTEXITCODE -ne 0) { throw "Mirror clone failed; do not treat backup as complete." }
-git -C ".\HeavenzFire-Sovereign-Node.git" bundle create $backup --all
+if (Test-Path -LiteralPath $mirror) {
+    git -C $mirror fetch --all --prune
+    if ($LASTEXITCODE -ne 0) { throw "Mirror refresh failed; do not treat backup as current." }
+} else {
+    git clone --mirror $repo $mirror
+    if ($LASTEXITCODE -ne 0) { throw "Mirror clone failed; do not treat backup as complete." }
+}
+git -C $mirror bundle create $backup --all
 if ($LASTEXITCODE -ne 0) { throw "Bundle creation failed." }
-git bundle verify $backup
+git -C $mirror bundle verify $backup
 if ($LASTEXITCODE -ne 0) { throw "Bundle verification failed." }
 Get-FileHash $backup -Algorithm SHA256
 ```

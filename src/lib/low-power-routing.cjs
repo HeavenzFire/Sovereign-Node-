@@ -15,6 +15,14 @@ const DEFAULT_POLICY = Object.freeze({
 function selectRoute({ routes, policy = {} }) {
   if (!Array.isArray(routes)) throw new TypeError('routes must be an array');
   const rules = { ...DEFAULT_POLICY, ...policy };
+  for (const [name, value] of Object.entries({
+    maxEstimatedMilliwatts: rules.maxEstimatedMilliwatts,
+    powerWeight: rules.powerWeight,
+    latencyWeight: rules.latencyWeight,
+    localPreference: rules.localPreference
+  })) {
+    if (!Number.isFinite(value) || value < 0) throw new RangeError(name + ' must be finite and non-negative');
+  }
   const rejected = [];
   const candidates = [];
 

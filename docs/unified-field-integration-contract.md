@@ -26,7 +26,7 @@ Source inspected: `server.ts` on `main`.
 1. Components must exchange versioned JSON contracts. Every message includes `schema_version` and a stable `request_id` where applicable.
 2. A capability is discoverable only when its manifest validates and its health probe succeeds. Static configuration is not proof of runtime availability.
 3. Node records must declare `source: "simulated" | "observed"`; simulated records must never be presented as live infrastructure.
-4. Network exposure is deny-by-default. Before deployment, replace the current `0.0.0.0` listener with an explicit configurable bind address; default to loopback for local development. Do not expose unauthenticated mutation endpoints to an untrusted network.
+4. Network exposure is deny-by-default. The current listener binds to `127.0.0.1`; keep loopback as the default for local development. Any future non-loopback bind must be an explicit deployment setting with authentication, authorization, and network-boundary tests. Do not expose unauthenticated mutation endpoints to an untrusted network.
 5. Validate request bodies and WebSocket frames; reject malformed JSON and unknown message types without crashing the process.
 6. Keep secrets and sensitive payloads out of logs. Any claim of no logging must be checked against actual code and runtime behavior.
 7. Integrations must be independently testable and fail closed when required capabilities are absent.
