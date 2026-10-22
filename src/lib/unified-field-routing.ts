@@ -29,8 +29,8 @@ export function selectWorker(
     node.id.trim().length > 0 &&
     !excluded.has(node.id) &&
     node.status === "healthy" &&
-    Number.isFinite(node.activeTasks) &&
-    Number.isFinite(node.maxTasks) &&
+    Number.isSafeInteger(node.activeTasks) &&
+    Number.isSafeInteger(node.maxTasks) &&
     node.activeTasks >= 0 &&
     node.maxTasks > 0 &&
     node.activeTasks < node.maxTasks &&
