@@ -1,0 +1,36 @@
+name: Guardian Protection verification
+
+on:
+  push:
+    branches: [main, guardian-protection-v0.1]
+    paths:
+      - "guardian-protection/**"
+      - ".github/workflows/guardian-protection.yml"
+  pull_request:
+    paths:
+      - "guardian-protection/**"
+      - ".github/workflows/guardian-protection.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vault-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: guardian-protection
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install vault dependency
+        run: python -m pip install -r requirements.txt
+      - name: Run automated tests
+        run: python -m unittest discover -s tests -v
+      - name: Check CLI help
+        run: python vault.py --help
