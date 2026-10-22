@@ -12,3 +12,8 @@ test('enforces power budget',()=>{const r=selectRoute({routes,policy:{allowExter
 test('fails closed if all routes are untrusted',()=>{const r=selectRoute({routes:[routes[2]]});assert.equal(r.status,'no-eligible-route');assert.equal(r.selected,null);});
 test('quiet heartbeat reduces idle chatter and keeps busy interval short',()=>{assert.equal(heartbeatIntervalMs({quiet:true,nodeState:'idle'}),300000);assert.equal(heartbeatIntervalMs({quiet:true,nodeState:'busy'}),5000);assert.equal(heartbeatIntervalMs({quiet:false,nodeState:'idle'}),30000);});
 test('rejects invalid heartbeat bounds',()=>assert.throws(()=>heartbeatIntervalMs({minMs:100,maxMs:10}),/bounds are invalid/));
+test('rejects invalid power-policy values instead of silently disabling the budget', () => {
+  assert.throws(() => selectRoute({ routes, policy: { maxEstimatedMilliwatts: Number.NaN } }), /finite and non-negative/);
+  assert.throws(() => selectRoute({ routes, policy: { maxEstimatedMilliwatts: undefined } }), /finite and non-negative/);
+  assert.throws(() => selectRoute({ routes, policy: { powerWeight: -1 } }), /finite and non-negative/);
+});
