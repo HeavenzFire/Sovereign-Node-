@@ -46,3 +46,11 @@ test("tie-breaking is deterministic", () => {
   const decision = selectWorker(tied, ["task.run"], [], now);
   assert.equal(decision.ok && decision.nodeId, "a-worker");
 });
+
+test("rejects fractional task counts and capacities", () => {
+  const invalid = [
+    { id: "fraction-active", status: "healthy" as const, capabilities: ["task.run"], activeTasks: 0.5, maxTasks: 2, lastHeartbeatMs: now },
+    { id: "fraction-capacity", status: "healthy" as const, capabilities: ["task.run"], activeTasks: 0, maxTasks: 2.5, lastHeartbeatMs: now }
+  ];
+  assert.equal(selectWorker(invalid, ["task.run"], [], now).ok, false);
+});
