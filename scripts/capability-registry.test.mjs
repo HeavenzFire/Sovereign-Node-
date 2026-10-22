@@ -62,3 +62,11 @@ test("rejects a non-array capabilities field", () => {
   registry.capabilities = {};
   assert.ok(validateCapabilityRegistry(registry).errors.includes("capabilities must be an array"));
 });
+
+test("rejects backslashes and control characters in HTTP health paths", () => {
+  for (const unsafePath of ["/\\\\attacker.example/health", "/api/health\\\\..\\\\admin", "/api/health\\u0000"]) {
+    const registry = validRegistry();
+    registry.capabilities[0].health_check.path = unsafePath;
+    assert.equal(validateCapabilityRegistry(registry).valid, false, unsafePath);
+  }
+});
