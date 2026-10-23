@@ -222,6 +222,7 @@ export default function App() {
   const [arcScore, setArcScore] = useState(0.85);
   const [trinaryResonance, setTrinaryResonance] = useState({ 3: 33, 6: 66, 9: 99 });
   const [isZylphaLoopActive, setIsZylphaLoopActive] = useState(false);
+  const [isZylphaStartPending, setIsZylphaStartPending] = useState(false);
   const [zylphaMetrics, setZylphaMetrics] = useState<ZylphaMetrics>({
     clockFrequency: 144.0,
     syntropyGain: 0.0,
