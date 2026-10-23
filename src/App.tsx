@@ -267,6 +267,11 @@ export default function App() {
         body: JSON.stringify({ data })
       });
       const result = await res.json();
+      if (res.status === 403) {
+        setApprovalToken(null);
+        window.alert("Approval token rejected. Enter the correct token on your next protected action.");
+        return;
+      }
       if (result.signature && result.compression) {
         setVault({ 
           latest: result.signature, 
