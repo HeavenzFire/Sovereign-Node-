@@ -1,96 +1,69 @@
-# Unified Field Recovery and Continuity
+# Unified Field: Engineering Principles and Verification Contract
 
-This document is the handoff point for continuing work after a lost chat, interrupted network connection, unavailable model, or workstation failure.
+## Purpose
 
-## Current checkpoint
+Build a local-first, auditable multi-agent coordination system that makes reliable progress under bounded failure while respecting human agency, least privilege, privacy, and data integrity.
 
-- Repository: `HeavenzFire/Sovereign-Node-`
-- Feature branch: `feat/unified-field-resilient-routing`
-- Recovery branch: `backup/unified-field-routing-2026-10-21`
-- Checkpoint commit before this document: `79b8914f91b1a010380138e36a9fb01922481a25`
-- Pull request: [#7 — health-aware routing and bounded failover](https://github.com/HeavenzFire/Sovereign-Node-/pull/7)
+## Higher-order design principles
 
-The recovery branch is a same-provider checkpoint, not a complete offsite backup. Keep an encrypted local or second-provider copy for provider/account outage resilience.
+These principles translate the project's ethical commitments into testable engineering rules. "Divine principles" is treated as the project's values vocabulary, not as a claim that software has supernatural authority.
 
-## What is included
+1. **Truth before claims** — distinguish planned, executed, and verified states. Never report success without evidence.
+2. **Love expressed as care** — protect people, children, and vulnerable users; minimize foreseeable harm and unnecessary data collection.
+3. **Honor and integrity** — preserve provenance, credit collaborators, disclose limitations, and never fabricate benchmarks or novelty claims.
+4. **Agency and consent** — require explicit authorization for destructive, privileged, credential-sensitive, or external actions.
+5. **Non-extraction** — minimize surveillance and data retention; do not use users' private data for unrelated purposes.
+6. **Least privilege and reversibility** — grant only necessary capabilities, scope operations narrowly, and provide rollback where feasible.
+7. **Humility and correction** — accept independent review, adversarial tests, failure reports, and evidence that disproves a hypothesis.
+8. **Stewardship across generations** — favor maintainable interfaces, accessible documentation, safe defaults, and durable knowledge over lock-in.
 
-- `src/lib/unified-field-routing.ts`: transport-agnostic, health-aware worker selection and bounded failover planning.
-- `tests/unified-field-routing.test.ts`: deterministic routing and failure-case tests.
-- `package.json`: the `npm test` script includes both routing and task-contract tests.
+## Higher-order functional architecture
 
-The current mesh endpoint in `server.ts` returns fixtures marked `mode: "simulation"` and `live_discovery: false`. Do not report these fixtures as live nodes.
+The system separates policy, coordination, execution, and evidence:
 
-## Resume procedure
+- **Policy gate:** validates task envelopes, capability scopes, approval requirements, deadlines, and quotas before work is scheduled.
+- **Coordinator:** chooses eligible workers using fresh health signals and explicit capability declarations; records why a worker was selected.
+- **Task ledger:** persists state transitions, idempotency identity, retry budget, lease owner, lease expiry, fencing token, and result provenance.
+- **Worker adapter:** executes only the declared task contract; worker output is untrusted until checked.
+- **Independent verifier:** checks output against task-specific acceptance criteria and, for high-impact work, uses an independent implementation or review path.
+- **Evidence journal:** records timestamps, versions, inputs/outputs hashes where appropriate, checks, failures, approvals, and rollback references without logging secrets.
+- **Recovery supervisor:** reaps expired leases, fences stale workers, retries only retryable failures within budget, and dead-letters exhausted work.
+- **Human control plane:** provides status, pause/cancel, audit inspection, and approval/denial interfaces.
 
-Use Node.js/npm and a clean working tree. From PowerShell:
+## Required invariants
 
-```powershell
-git clone https://github.com/HeavenzFire/Sovereign-Node-.git
-Set-Location .\Sovereign-Node-
-git fetch origin
-git switch --track origin/feat/unified-field-resilient-routing
-npm ci
-npm test
-npm run lint
-npm run build
-```
+1. An unapproved sensitive task never executes.
+2. A task identifier and idempotency key cannot silently refer to different work.
+3. A stale lease holder cannot commit a result after reassignment.
+4. Every state change is legal, persisted, and attributable.
+5. A task is not "complete" until its acceptance checks pass.
+6. Retries are bounded and distinguish transient from permanent failures.
+7. A worker is eligible only while its heartbeat is fresh and its capabilities match.
+8. Secrets do not enter ordinary logs, prompts, or public artifacts.
+9. Coordinator health does not imply worker health; worker health does not imply task success.
+10. Recovery and restart behavior is tested from persisted state, not only in-memory mocks.
 
-If the feature branch is unavailable, recover the checkpoint:
+## Current implementation boundary
 
-```powershell
-git fetch origin backup/unified-field-routing-2026-10-21
-git switch --detach origin/backup/unified-field-routing-2026-10-21
-```
+The current work branch adds a durable JSON-backed task ledger, task lifecycle HTTP routes, lease recovery, and unit tests. This is a single-host persistence mechanism, not a distributed database or consensus protocol. The ledger and routes must pass CI and security review before being treated as production-ready. Multi-process lock correctness, atomic filesystem durability across power loss, authorization of worker lifecycle routes, registry API compatibility, and end-to-end execution integration remain explicit verification items.
 
-A detached checkout is for inspection/recovery. Create a new branch before making commits.
+## Acceptance and release gates
 
-## Create an offline recovery copy
+- Unit tests cover idempotency, illegal transitions, stale fencing tokens, lease expiry, retry exhaustion, result bounds, and concurrent writes.
+- Integration tests cover HTTP authorization, worker capability checks, restart recovery, and end-to-end task execution.
+- Failure injection covers worker death, duplicate delivery, timeout, corrupted ledger, and coordinator restart.
+- Security review checks route authorization, input validation, log redaction, path handling, lock behavior, and dependency advisories.
+- Benchmarks compare against a simple baseline and report workload, hardware, sample count, percentiles, error bars, and reproducible commands.
+- Release notes distinguish implemented, tested, benchmarked, externally reviewed, and hypothesized capabilities.
+- Any claim of being "first" requires a scoped prior-art search and independent novelty review.
 
-Run this on a trusted machine with Git installed. Store the output on a separate encrypted drive or other independent storage. Ensure the destination has sufficient space.
+## Operational status vocabulary
 
-```powershell
-$repo = "https://github.com/HeavenzFire/Sovereign-Node-.git"
-$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$mirror = Join-Path $PWD "HeavenzFire-Sovereign-Node.git"
-$backup = Join-Path $PWD "HeavenzFire-Sovereign-Node-$stamp.bundle"
-if (Test-Path -LiteralPath $mirror) {
-    git -C $mirror fetch --all --prune
-    if ($LASTEXITCODE -ne 0) { throw "Mirror refresh failed; do not treat backup as current." }
-} else {
-    git clone --mirror $repo $mirror
-    if ($LASTEXITCODE -ne 0) { throw "Mirror clone failed; do not treat backup as complete." }
-}
-git -C $mirror bundle create $backup --all
-if ($LASTEXITCODE -ne 0) { throw "Bundle creation failed." }
-git -C $mirror bundle verify $backup
-if ($LASTEXITCODE -ne 0) { throw "Bundle verification failed." }
-Get-FileHash $backup -Algorithm SHA256
-```
+- **Planned:** design exists; no code evidence yet.
+- **Implemented:** code is committed.
+- **Tested:** specified tests pass in a recorded environment.
+- **Verified:** independent checks and failure-path evidence support the claim.
+- **Production-ready:** security, operational, recovery, and documentation gates are met.
+- **Unknown/blocked:** evidence is missing or the environment could not be inspected.
 
-Keep the printed SHA-256 value alongside the backup on the separate storage device. Periodically test recovery by cloning from the bundle into a new directory and running the test suite. A Git bundle preserves Git history and refs; it does not necessarily preserve external releases, issues, pull-request discussions, secrets, or external service state.
-
-## Backup policy
-
-1. Keep changes in small, reviewable commits and push them to GitHub.
-2. Create a checkpoint branch before risky refactors or migration work.
-3. Maintain at least one backup outside the primary GitHub account/provider.
-4. Keep credentials, API keys, tokens, private user data, and local environment files out of Git and backups unless specifically required and securely handled.
-5. Test restores periodically; an untested backup is not a verified recovery.
-6. Preserve approval gates for destructive operations, privilege changes, network exposure, and secret handling. Recovery must not silently disable security controls.
-7. Record test results accurately. A committed test is not proof that it passed; only report success after running it and inspecting the result.
-
-## Current implementation status
-
-- `src/lib/unified-field-registry.ts` implements process-local registration, declared-capability validation, server-generated heartbeat timestamps, TTL-based healthy/offline snapshots, and explicit removal.
-- `server.ts` exposes `POST /api/mesh/register`, `POST /api/mesh/heartbeat`, `GET /api/mesh/live-nodes`, and `DELETE /api/mesh/live-nodes/:id`.
-- The process still binds to `127.0.0.1`. The registry is not persistent across restarts and is not remote mesh discovery. The existing `/api/mesh/nodes` route remains simulation fixtures.
-- GitHub Actions Unified Field verification run #12 passed the locked install, contract-test step, type-check, and production build on commit `2c26e528f6a8e8356781d0e1634161b2343586d5`. Subsequent capability-validation changes must pass their own latest run before they are treated as verified.
-- The connected Windows machine could not clone this repository over HTTPS because GitHub authentication failed; this prevented a separate local test run.
-
-## Next engineering steps
-
-1. Confirm the latest GitHub Actions run passes after capability allowlisting and test corrections.
-2. Add HTTP integration tests for registration, heartbeat, invalid input, TTL expiry, and removal.
-3. Add authentication and authorization before any non-loopback listener or cross-machine registration is considered.
-4. Add durable task state and idempotency enforcement, then test worker loss and bounded reassignment without duplicate side effects.
-5. Persist registry state only with an explicit recovery/versioning policy, then run operator-controlled restart and restore drills.
+No status may be silently upgraded from one level to the next.
