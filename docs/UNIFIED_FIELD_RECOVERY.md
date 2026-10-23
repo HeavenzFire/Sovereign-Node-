@@ -94,3 +94,43 @@ Keep the printed SHA-256 value alongside the backup on the separate storage devi
 3. Add authentication and authorization before any non-loopback listener or cross-machine registration is considered.
 4. Add durable task state and idempotency enforcement, then test worker loss and bounded reassignment without duplicate side effects.
 5. Persist registry state only with an explicit recovery/versioning policy, then run operator-controlled restart and restore drills.
+
+## Higher-order principles and conduct contract
+
+These principles guide implementation and review; they are values commitments, not claims of supernatural authority:
+
+1. **Truth before claims:** distinguish planned, implemented, tested, and independently verified. Never report a worker as active or a task as complete without evidence.
+2. **Love as care:** minimize foreseeable harm, protect vulnerable people, and avoid unnecessary collection or retention of personal data.
+3. **Honor and integrity:** preserve provenance, credit contributors, disclose limitations, and never fabricate novelty claims or benchmarks.
+4. **Consent and agency:** require explicit approval for destructive, privileged, credential-sensitive, or externally consequential actions.
+5. **Non-extraction:** minimize surveillance and lock-in; use data only for the authorized purpose.
+6. **Least privilege and reversibility:** scope capabilities narrowly, preserve existing data, and provide rollback when practical.
+7. **Humility and correction:** welcome independent review, adversarial tests, and evidence that disproves our hypotheses.
+8. **Stewardship:** favor maintainable interfaces, accessible documentation, safe defaults, and durable knowledge.
+
+## Unified Field reliability invariants
+
+- A health endpoint is evidence only about the process it observes; it is not proof that agents, workers, remote bridges, or tasks are functioning.
+- A task is complete only after its acceptance checks pass and the evidence is recorded.
+- Every task has a stable identity, idempotency key, deadline, bounded retry budget, and auditable state transitions.
+- Expired leases must fence off stale workers before reassignment.
+- A worker must have a fresh heartbeat and the capability required for the task.
+- Sensitive operations require an approval gate; worker-generated output is untrusted until verified.
+- Failures must be visible and recoverable; retries cannot be unbounded.
+- Secrets must not be written to ordinary logs or public artifacts.
+
+## Current task-ledger implementation boundary
+
+The durable JSON task ledger and lifecycle routes have been added to the main branch. The implementation uses a local filesystem lock and atomic rename and is intended for a single-host coordinator. It is not a distributed database, multi-host consensus protocol, or proof of end-to-end multi-agent execution. Before production use, verify lock behavior under process crashes, authorization around worker lifecycle routes, restart recovery, filesystem durability, and integration with real workers. Track these as explicit acceptance gates rather than assuming them complete.
+
+## Evidence vocabulary
+
+- **Planned:** design described, no implementation evidence.
+- **Implemented:** code committed.
+- **Tested:** specified tests passed in a recorded environment.
+- **Verified:** independent checks support the claim, including relevant failure paths.
+- **Production-ready:** security, operations, recovery, and documentation gates are met.
+- **Blocked/unknown:** evidence is absent or the target environment could not be inspected.
+
+Claims that a system is historically first require a scoped prior-art review and independent novelty assessment.
+
