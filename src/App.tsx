@@ -320,6 +320,7 @@ export default function App() {
     ws.onclose = () => {
       console.log("Disconnected from Sovereign Mesh");
       setSocket(null);
+      setIsZylphaStartPending(false);
     };
 
     return () => ws.close();
@@ -339,14 +340,20 @@ export default function App() {
   }, []);
 
   const toggleZylphaEngine = () => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN || isZylphaStartPending) return;
     if (isZylphaLoopActive) {
       socket.send(JSON.stringify({ type: "STOP_ENGINE" }));
       setIsZylphaLoopActive(false);
     } else {
       const token = getApprovalToken();
       if (!token) return;
-      socket.send(JSON.stringify({ type: "START_ENGINE", approval_token: token }));
+      setIsZylphaStartPending(true);
+      try {
+        socket.send(JSON.stringify({ type: "START_ENGINE", approval_token: token }));
+      } catch (error) {
+        setIsZylphaStartPending(false);
+        console.error("Unified Field engine start could not be sent:", error);
+      }
     }
   };
   const [qwenReasoning, setQwenReasoning] = useState<string | null>(null);
@@ -619,6 +626,11 @@ if __name__ == "__main__":
         body: JSON.stringify(action)
       });
       
+      if (response.status === 403) {
+        setApprovalToken(null);
+        window.alert("Approval token rejected. Enter the correct token on your next protected action.");
+        throw new Error("Approval credential rejected");
+      }
       if (!response.ok) throw new Error('API request failed');
       
       const result: TrinaryResult = await response.json();
