@@ -20,7 +20,7 @@ Each worker receives a narrowly scoped task envelope:
 - pinned base commit SHA;
 - explicit allowed paths and capabilities;
 - bounded CPU, memory, runtime, and network egress;
-- read-only repository credentials unless a task explicitly requires a narrowly scoped write;
+- read-only repository credentials only; workers never receive write-capable GitHub credentials. If a write is required, a separate trusted release identity performs it after independent review, outside the worker sandbox;
 - isolated temporary filesystem and process namespace;
 - no ambient personal access tokens, SSH keys, cloud credentials, or host mounts;
 - output limited to a patch, test results, and structured evidence.
