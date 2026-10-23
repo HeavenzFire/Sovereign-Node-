@@ -301,10 +301,17 @@ export default function App() {
       } else if (message.type === "REASONING") {
         setZylphaValidations(prev => [message.data, ...prev].slice(0, 5));
       } else if (message.type === "ENGINE_STARTED") {
+        setIsZylphaStartPending(false);
         setIsZylphaLoopActive(true);
       } else if (message.type === "ENGINE_COMPLETED") {
+        setIsZylphaStartPending(false);
         setIsZylphaLoopActive(false);
       } else if (message.type === "ERROR") {
+        setIsZylphaStartPending(false);
+        if (message.error === "APPROVAL_REQUIRED") {
+          setApprovalToken(null);
+          window.alert("Approval token rejected. Enter the correct token on your next protected action.");
+        }
         setIsZylphaLoopActive(false);
         console.warn("Unified Field engine request rejected:", message.error);
       }
