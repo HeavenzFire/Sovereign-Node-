@@ -8,10 +8,14 @@ import { SyntropicEngine } from "./src/lib/syntropic-engine";
 import { zylpha } from "./src/lib/zylpha-kernel";
 import { UNIFIED_FIELD_CAPABILITIES, isValidTaskEnvelope, requiresApproval } from "./src/lib/unified-field-contract";
 import { UnifiedFieldRegistry } from "./src/lib/unified-field-registry";
+import { DurableTaskLedger } from "./src/lib/durable-task-ledger";
+import { hasValidApprovalToken } from "./src/lib/approval-gate";
 
 const startedAt = Date.now();
 const NODE_ID = process.env.HEAVENZFIRE_NODE_ID || "sovereign-node-local";
 const VERSION = process.env.npm_package_version || "0.0.0";
+const isApprovalAuthorized = (provided: unknown) =>
+  hasValidApprovalToken(provided, process.env.HEAVENZFIRE_APPROVAL_TOKEN);
 
 async function startServer() {
   const app = express();
@@ -31,6 +35,15 @@ async function startServer() {
   // Process-local registry. This is live only for nodes registered with this process;
   // the server remains loopback-bound until a separately secured remote transport is implemented.
   const registry = new UnifiedFieldRegistry(Number(process.env.HEAVENZFIRE_HEARTBEAT_TTL_MS || 15_000));
+  const taskLeaseMs = Number(process.env.HEAVENZFIRE_TASK_LEASE_MS || 15_000);
+  const taskLedger = new DurableTaskLedger(
+    process.env.HEAVENZFIRE_TASK_LEDGER_PATH || path.resolve(process.cwd(), "data", "tasks.json"),
+    { leaseMs: taskLeaseMs }
+  );
+  const leaseReaper = setInterval(() => {
+    void taskLedger.reapExpiredLeases().catch(() => undefined);
+  }, Math.max(1_000, Math.min(5_000, taskLeaseMs)));
+  leaseReaper.unref();
 
   const capabilities = UNIFIED_FIELD_CAPABILITIES;
 
@@ -71,11 +84,133 @@ async function startServer() {
     });
   });
 
+  // Durable task ledger. Enqueueing approval-sensitive work is gated;
+  // claim is restricted to a fresh local-registry node with the needed capability.
+  const sendLedgerError = (res: express.Response, error: unknown) => {
+    const message = error instanceof Error ? error.message : "Task ledger operation failed";
+    const status = /Task not found/.test(message) ? 404
+      : /stale|expired|not queued|must be running|not leased|retry budget|owner/.test(message) ? 409
+      : 400;
+    return res.status(status).json({ error: message });
+  };
+
+  app.post("/api/tasks", async (req, res) => {
+    if (!isValidTaskEnvelope(req.body)) {
+      return res.status(400).json({ error: "Invalid or expired task envelope" });
+    }
+    if (requiresApproval(req.body.capability) &&
+        !isApprovalAuthorized(req.get("x-heavenzfire-approval"))) {
+      return res.status(403).json({ error: "Approval credential required or invalid" });
+    }
+    try {
+      const task = await taskLedger.enqueue({
+        task_id: req.body.task_id,
+        capability: req.body.capability,
+        idempotency_key: req.body.idempotency_key,
+        deadline: req.body.deadline
+      }, req.body.max_attempts);
+      return res.status(202).json({ task, execution: "not_started" });
+    } catch (error) {
+      return sendLedgerError(res, error);
+    }
+  });
+
+  app.get("/api/tasks", async (_req, res) => {
+    try {
+      await taskLedger.reapExpiredLeases();
+      const tasks = await taskLedger.list();
+      return res.json({ count: tasks.length, tasks: tasks.slice(-100) });
+    } catch (error) {
+      return sendLedgerError(res, error);
+    }
+  });
+
+  app.get("/api/tasks/:taskId", async (req, res) => {
+    try {
+      const task = await taskLedger.get(req.params.taskId);
+      if (!task) return res.status(404).json({ error: "Task not found" });
+      return res.json({ task });
+    } catch (error) {
+      return sendLedgerError(res, error);
+    }
+  });
+
+  app.post("/api/tasks/:taskId/claim", async (req, res) => {
+    const workerId = req.body?.worker_id;
+    if (typeof workerId !== "string") return res.status(400).json({ error: "Expected worker_id" });
+    try {
+      await taskLedger.reapExpiredLeases();
+      const candidate = registry.list().find((node) => node.id === workerId && node.status === "healthy");
+      if (!candidate) return res.status(409).json({ error: "Worker is not registered with a fresh heartbeat" });
+      const queuedTask = await taskLedger.get(req.params.taskId);
+      if (!queuedTask) return res.status(404).json({ error: "Task not found" });
+      if (!candidate.capabilities.includes(queuedTask.capability)) {
+        return res.status(403).json({ error: "Worker lacks the task capability" });
+      }
+      const task = await taskLedger.claim(req.params.taskId, workerId);
+      return res.json({ task, lease: { owner: workerId, fencing_token: task.fencing_token, lease_until_ms: task.lease_until_ms } });
+    } catch (error) {
+      return sendLedgerError(res, error);
+    }
+  });
+
+  app.post("/api/tasks/:taskId/start", async (req, res) => {
+    const { worker_id: workerId, fencing_token: fencingToken } = req.body ?? {};
+    if (typeof workerId !== "string" || !Number.isSafeInteger(fencingToken)) {
+      return res.status(400).json({ error: "Expected worker_id and integer fencing_token" });
+    }
+    try {
+      return res.json({ task: await taskLedger.start(req.params.taskId, workerId, fencingToken) });
+    } catch (error) {
+      return sendLedgerError(res, error);
+    }
+  });
+
+  app.post("/api/tasks/:taskId/renew", async (req, res) => {
+    const { worker_id: workerId, fencing_token: fencingToken } = req.body ?? {};
+    if (typeof workerId !== "string" || !Number.isSafeInteger(fencingToken)) {
+      return res.status(400).json({ error: "Expected worker_id and integer fencing_token" });
+    }
+    try {
+      return res.json({ task: await taskLedger.renew(req.params.taskId, workerId, fencingToken) });
+    } catch (error) {
+      return sendLedgerError(res, error);
+    }
+  });
+
+  app.post("/api/tasks/:taskId/complete", async (req, res) => {
+    const { worker_id: workerId, fencing_token: fencingToken, result } = req.body ?? {};
+    if (typeof workerId !== "string" || !Number.isSafeInteger(fencingToken) || !Object.prototype.hasOwnProperty.call(req.body ?? {}, "result")) {
+      return res.status(400).json({ error: "Expected worker_id, integer fencing_token, and result" });
+    }
+    try {
+      return res.json({ task: await taskLedger.complete(req.params.taskId, workerId, fencingToken, result) });
+    } catch (error) {
+      return sendLedgerError(res, error);
+    }
+  });
+
+  app.post("/api/tasks/:taskId/fail", async (req, res) => {
+    const { worker_id: workerId, fencing_token: fencingToken, error: failure, retryable } = req.body ?? {};
+    if (typeof workerId !== "string" || !Number.isSafeInteger(fencingToken) ||
+        typeof failure !== "string" || typeof retryable !== "boolean") {
+      return res.status(400).json({ error: "Expected worker_id, integer fencing_token, error, and boolean retryable" });
+    }
+    try {
+      return res.json({ task: await taskLedger.fail(req.params.taskId, workerId, fencingToken, failure, retryable) });
+    } catch (error) {
+      return sendLedgerError(res, error);
+    }
+  });
+
   /**
    * ZYLPHA Bridge: sealing may have external or durable effects; callers should
    * require an explicit approval step before invoking this endpoint.
    */
   app.post("/seal", (req, res) => {
+    if (!isApprovalAuthorized(req.get("x-heavenzfire-approval"))) {
+      return res.status(403).json({ error: "Approval credential required or invalid" });
+    }
     const { data } = req.body ?? {};
     if (data === undefined || data === null || data === "") {
       return res.status(400).json({ error: "No data provided" });
@@ -103,6 +238,9 @@ async function startServer() {
   });
 
   app.post("/api/trinary/decide", async (req, res) => {
+    if (!isApprovalAuthorized(req.get("x-heavenzfire-approval"))) {
+      return res.status(403).json({ error: "Approval credential required or invalid" });
+    }
     try {
       const result = await decider.decide(req.body);
       res.json(result);
@@ -174,7 +312,7 @@ async function startServer() {
 
   wss.on("connection", (ws: WebSocket) => {
     ws.on("message", (message) => {
-      let data: { type?: string };
+      let data: { type?: string; approval_token?: unknown };
       try {
         data = JSON.parse(message.toString());
       } catch {
@@ -183,6 +321,10 @@ async function startServer() {
       }
 
       if (data.type === "START_ENGINE") {
+        if (!isApprovalAuthorized(data.approval_token)) {
+          ws.send(JSON.stringify({ type: "ERROR", error: "APPROVAL_REQUIRED" }));
+          return;
+        }
         if (engineOwner && engineOwner !== ws) {
           ws.send(JSON.stringify({ type: "ERROR", error: "ENGINE_BUSY" }));
           return;

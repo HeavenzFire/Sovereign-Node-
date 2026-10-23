@@ -222,6 +222,7 @@ export default function App() {
   const [arcScore, setArcScore] = useState(0.85);
   const [trinaryResonance, setTrinaryResonance] = useState({ 3: 33, 6: 66, 9: 99 });
   const [isZylphaLoopActive, setIsZylphaLoopActive] = useState(false);
+  const [isZylphaStartPending, setIsZylphaStartPending] = useState(false);
   const [zylphaMetrics, setZylphaMetrics] = useState<ZylphaMetrics>({
     clockFrequency: 144.0,
     syntropyGain: 0.0,
@@ -232,6 +233,8 @@ export default function App() {
   const [zylphaValidations, setZylphaValidations] = useState<ZylphaValidation[]>([]);
   const [meshNodes, setMeshNodes] = useState<MeshNode[]>([]);
   const [socket, setSocket] = useState<WebSocket | null>(null);
+  // Kept in component memory only; never persisted to localStorage or embedded in the bundle.
+  const [approvalToken, setApprovalToken] = useState<string | null>(null);
   const [currentGlyph, setCurrentGlyph] = useState<string>("TOROID_STABLE");
   const [currentResonance, setCurrentResonance] = useState<number>(144);
   const [vault, setVault] = useState<{ latest: string | null, count: number, anchors: number, ratio: string }>({ 
@@ -241,14 +244,34 @@ export default function App() {
     ratio: "16:1"
   });
 
-  const sealData = async (data: string) => {
+  const getApprovalToken = (): string | null => {
+    if (approvalToken) return approvalToken;
+    const entered = window.prompt("Enter the local HeavenzFire approval token. It will remain in memory for this browser session only.");
+    if (!entered) return null;
+    if (entered.length < 32) {
+      window.alert("The approval token must be at least 32 characters.");
+      return null;
+    }
+    setApprovalToken(entered);
+    return entered;
+  };
+
+  const sealData = async (data: string, token: string) => {
     try {
       const res = await fetch('/seal', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-heavenzfire-approval': token
+        },
         body: JSON.stringify({ data })
       });
       const result = await res.json();
+      if (res.status === 403) {
+        setApprovalToken(null);
+        window.alert("Approval token rejected. Enter the correct token on your next protected action.");
+        return;
+      }
       if (result.signature && result.compression) {
         setVault({ 
           latest: result.signature, 
@@ -275,16 +298,29 @@ export default function App() {
       const message = JSON.parse(event.data);
       if (message.type === "METRICS") {
         setZylphaMetrics(message.data);
-        // Point the Dark Lattice jitter stream at the seal endpoint
-        sealData(JSON.stringify(message.data));
       } else if (message.type === "REASONING") {
         setZylphaValidations(prev => [message.data, ...prev].slice(0, 5));
+      } else if (message.type === "ENGINE_STARTED") {
+        setIsZylphaStartPending(false);
+        setIsZylphaLoopActive(true);
+      } else if (message.type === "ENGINE_COMPLETED") {
+        setIsZylphaStartPending(false);
+        setIsZylphaLoopActive(false);
+      } else if (message.type === "ERROR") {
+        setIsZylphaStartPending(false);
+        if (message.error === "APPROVAL_REQUIRED") {
+          setApprovalToken(null);
+          window.alert("Approval token rejected. Enter the correct token on your next protected action.");
+        }
+        setIsZylphaLoopActive(false);
+        console.warn("Unified Field engine request rejected:", message.error);
       }
     };
 
     ws.onclose = () => {
       console.log("Disconnected from Sovereign Mesh");
       setSocket(null);
+      setIsZylphaStartPending(false);
     };
 
     return () => ws.close();
@@ -304,13 +340,20 @@ export default function App() {
   }, []);
 
   const toggleZylphaEngine = () => {
-    if (!socket) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN || isZylphaStartPending) return;
     if (isZylphaLoopActive) {
       socket.send(JSON.stringify({ type: "STOP_ENGINE" }));
       setIsZylphaLoopActive(false);
     } else {
-      socket.send(JSON.stringify({ type: "START_ENGINE" }));
-      setIsZylphaLoopActive(true);
+      const token = getApprovalToken();
+      if (!token) return;
+      setIsZylphaStartPending(true);
+      try {
+        socket.send(JSON.stringify({ type: "START_ENGINE", approval_token: token }));
+      } catch (error) {
+        setIsZylphaStartPending(false);
+        console.error("Unified Field engine start could not be sent:", error);
+      }
     }
   };
   const [qwenReasoning, setQwenReasoning] = useState<string | null>(null);
@@ -558,6 +601,8 @@ if __name__ == "__main__":
   }, [promptBuffer, isCollapsing]);
 
   const runTrinaryDecision = async (kind: "file_edit" | "deploy" | "message_send" | "fpga_program" | "mesh_broadcast" | "ledger_commit", payload: any) => {
+    const token = getApprovalToken();
+    if (!token) return;
     setIsDeciding(true);
     const action: ProposedAction = {
       id: Math.random().toString(36).substring(2, 15),
@@ -574,10 +619,18 @@ if __name__ == "__main__":
     try {
       const response = await fetch('/api/trinary/decide', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-heavenzfire-approval': token
+        },
         body: JSON.stringify(action)
       });
       
+      if (response.status === 403) {
+        setApprovalToken(null);
+        window.alert("Approval token rejected. Enter the correct token on your next protected action.");
+        throw new Error("Approval credential rejected");
+      }
       if (!response.ok) throw new Error('API request failed');
       
       const result: TrinaryResult = await response.json();
@@ -1186,6 +1239,15 @@ if __name__ == "__main__":
                       <Lock size={14} className="text-emerald-500" />
                       ZYLPHA Vault (32b Seals)
                     </h3>
+                    <button
+                      onClick={() => {
+                        const token = getApprovalToken();
+                        if (token) void sealData(JSON.stringify(zylphaMetrics), token);
+                      }}
+                      className="w-full mb-4 py-2 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-mono text-[9px] uppercase tracking-widest hover:bg-emerald-500/20"
+                    >
+                      Seal Current Metrics (Approval Required)
+                    </button>
                     <div className="space-y-2">
                       <div className="flex justify-between text-[10px] font-mono text-zinc-500">
                         <span>Total Seals</span>
