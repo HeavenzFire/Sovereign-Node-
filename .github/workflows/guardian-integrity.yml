@@ -67,7 +67,11 @@ jobs:
                   continue
               path = pathlib.Path(raw_path.decode("utf-8", "replace"))
               try:
-                  data = path.read_bytes()
+                  # Skip symlinks and cap bytes before allocating the file contents.
+                  if path.is_symlink():
+                      continue
+                  with path.open("rb") as stream:
+                      data = stream.read(2_000_001)
                   if b"\0" in data or len(data) > 2_000_000:
                       continue
                   content = data.decode("utf-8")
